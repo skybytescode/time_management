@@ -1,0 +1,86 @@
+#!/bin/sh
+# Adds or removes the Time Management site block:
+#  - a section in /etc/hosts (every program, every browser),
+#  - a URLBlocklist policy for Chrome/Chromium, which reuse open connections otherwise,
+#  - a WebsiteFilter policy for Firefox (read when Firefox starts),
+#  - on block, existing connections to the sites are cut so open tabs can't keep using them.
+# Installed as root by install-site-blocker.sh; the app runs it through `sudo -n`.
+set -eu
+
+HOSTS=/etc/hosts
+BEGIN="# BEGIN time-management"
+END="# END time-management"
+CHROME_POLICY=time-management.json
+FIREFOX_DIR=/etc/firefox/policies
+FIREFOX_MARKER=$FIREFOX_DIR/.time-management
+
+# Managed-policy directory of each installed Chrome-based browser.
+chrome_policy_dirs() {
+  [ -d /opt/google/chrome ] && echo /etc/opt/chrome/policies/managed
+  [ -x /usr/bin/chromium ] && echo /etc/chromium/policies/managed
+  true
+}
+
+remove_policies() {
+  for dir in $(chrome_policy_dirs); do
+    rm -f "$dir/$CHROME_POLICY"
+  done
+  # Only remove a Firefox policy file we created ourselves.
+  if [ -e "$FIREFOX_MARKER" ]; then
+    rm -f "$FIREFOX_DIR/policies.json" "$FIREFOX_MARKER"
+  fi
+}
+
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+
+# Current hosts file without our section (and with a trailing newline).
+sed -e "/^$BEGIN\$/,/^$END\$/d" -e '$a\' "$HOSTS" > "$tmp"
+
+case "${1:-}" in
+  block)
+    shift
+    chrome=""
+    firefox=""
+    for domain in "$@"; do
+      case "$domain" in
+        '' | *[!a-z0-9.-]*) echo "invalid domain: $domain" >&2; exit 2 ;;
+      esac
+      chrome="$chrome${chrome:+, }\"$domain\""
+      firefox="$firefox${firefox:+, }\"*://$domain/*\", \"*://*.$domain/*\""
+    done
+
+    # Real addresses, looked up before the hosts file starts answering 0.0.0.0.
+    addresses=$(for domain in "$@"; do getent ahosts "$domain" || true; done |
+      awk '{print $1}' | grep -vxE '0\.0\.0\.0|::|127\..*|::1' | sort -u)
+
+    {
+      echo "$BEGIN"
+      for domain in "$@"; do
+        printf '0.0.0.0 %s\n:: %s\n' "$domain" "$domain"
+      done
+      echo "$END"
+    } >> "$tmp"
+    cat "$tmp" > "$HOSTS"
+
+    for dir in $(chrome_policy_dirs); do
+      mkdir -p "$dir"
+      printf '{ "URLBlocklist": [%s] }\n' "$chrome" > "$dir/$CHROME_POLICY"
+    done
+    if [ -e "$FIREFOX_MARKER" ] || [ ! -e "$FIREFOX_DIR/policies.json" ]; then
+      mkdir -p "$FIREFOX_DIR"
+      printf '{ "policies": { "WebsiteFilter": { "Block": [%s] } } }\n' "$firefox" > "$FIREFOX_DIR/policies.json"
+      touch "$FIREFOX_MARKER"
+    fi
+
+    for address in $addresses; do
+      ss -K -t dst "$address" > /dev/null 2>&1 || true
+      ss -K -u dst "$address" > /dev/null 2>&1 || true
+    done
+    ;;
+  unblock)
+    cat "$tmp" > "$HOSTS"
+    remove_policies
+    ;;
+  *) echo "usage: $0 block DOMAIN... | unblock" >&2; exit 2 ;;
+esac

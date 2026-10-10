@@ -10,7 +10,37 @@
 
   <body>
     <main class="container">
-      <h1 id="greeting"></h1>
+      <div class="controls">
+        <button id="toggle" class="toggle" type="button">Start</button>
+        <div id="setter" class="setter">
+          <button id="minus" class="step" type="button" aria-label="Remove minutes">−</button>
+          <label class="minutes">
+            <input id="minutes" type="number" min="1" max="240" value="25" />
+            <span>min</span>
+          </label>
+          <button id="plus" class="step" type="button" aria-label="Add minutes">+</button>
+        </div>
+      </div>
+
+      <svg class="dial" viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="40" y1="30" x2="160" y2="170">
+            <stop offset="0" stop-color="#f7e08a" />
+            <stop offset="0.45" stop-color="#d4af37" />
+            <stop offset="1" stop-color="#a67c1a" />
+          </linearGradient>
+        </defs>
+        <circle class="face" cx="100" cy="100" r="96" />
+        <g id="ticks"></g>
+        <circle id="disc" class="left" cx="100" cy="100" r="80" />
+        <path id="wedge" class="left" />
+        <line id="hand" class="hand" x1="100" y1="100" x2="100" y2="20" />
+        <circle class="hub" cx="100" cy="100" r="5" />
+      </svg>
+
+      <p id="remaining" class="remaining">25:00</p>
+      <p id="times" class="times" hidden></p>
+      <p id="status" class="status"></p>
     </main>
   </body>
 </html>

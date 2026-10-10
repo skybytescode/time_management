@@ -1,23 +1,175 @@
 :root {
+  --fg: #0f0f0f;
+  --bg: #f6f6f6;
+  --muted: #6b6b6b;
+  --surface: #ffffff;
+  --border: #d4d4d4;
+  --accent: #2f7d4f;
+  --danger: #d03b3b;
+
   font-family: Inter, system-ui, sans-serif;
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  color: var(--fg);
+  background-color: var(--bg);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+    --fg: #f6f6f6;
+    --bg: #2f2f2f;
+    --muted: #a8a8a8;
+    --surface: #3a3a3a;
+    --border: #555555;
+    --accent: #4caf78;
+    --danger: #e25555;
   }
+}
+
+[hidden] {
+  display: none !important;
 }
 
 body {
   margin: 0;
+  background-color: var(--bg);
 }
 
 .container {
-  height: 100vh;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24px 16px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.toggle {
+  min-width: 110px;
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: var(--accent);
+}
+
+.toggle.active {
+  background-color: var(--danger);
+}
+
+.toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.setter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 1.3rem;
+  color: var(--fg);
+  background-color: var(--surface);
+}
+
+.minutes {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.minutes input {
+  width: 3.5em;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 1.1rem;
+  text-align: center;
+  color: var(--fg);
+  background-color: var(--surface);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.minutes input::-webkit-inner-spin-button,
+.minutes input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.dial {
+  width: min(300px, 80vw, 50vh);
+  height: auto;
+}
+
+.face {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.tick {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.tick.major {
+  stroke: var(--fg);
+  stroke-width: 2.5;
+}
+
+.left {
+  fill: url(#gold);
+}
+
+.hand {
+  stroke: var(--fg);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.hub {
+  fill: var(--fg);
+}
+
+.remaining {
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.times {
+  margin: 0;
+  color: var(--muted);
+}
+
+.status {
+  margin: 0;
+  min-height: 1.4em;
+  max-width: 480px;
+  text-align: center;
+  color: var(--muted);
 }
