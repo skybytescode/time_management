@@ -16,7 +16,7 @@ cat > "$HOME/.local/share/applications/$app_id.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Time Management
-Comment=Focused work sessions with a countdown and site blocking
+Comment=Work sessions with a voice assistant, notes, history and site blocking
 Exec=$bin
 Icon=$icon
 Terminal=false
