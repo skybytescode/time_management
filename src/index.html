@@ -9,20 +9,33 @@
   </head>
 
   <body>
-    <main class="container">
-      <div class="controls">
-        <button id="toggle" class="toggle" type="button">Start</button>
-        <div id="setter" class="setter">
-          <button id="minus" class="step" type="button" aria-label="Remove minutes">−</button>
-          <label class="minutes">
-            <input id="minutes" type="number" min="1" max="240" value="25" />
-            <span>min</span>
-          </label>
-          <button id="plus" class="step" type="button" aria-label="Add minutes">+</button>
+    <nav class="tabs">
+      <button class="tab active" type="button" data-view="session-view">Session</button>
+      <button class="tab" type="button" data-view="history-view">History</button>
+      <button class="tab" type="button" data-view="ask-view">Ask</button>
+    </nav>
+
+    <main id="session-view" class="view session-view">
+      <div id="setup" class="setup">
+        <input id="task" class="task" type="text" maxlength="200" placeholder="What are you working on?" />
+        <div class="setup-row">
+          <div class="modes" role="radiogroup">
+            <label><input type="radio" name="mode" value="open" checked /> Open</label>
+            <label><input type="radio" name="mode" value="timed" /> Timer</label>
+          </div>
+          <div id="setter" class="setter" hidden>
+            <button id="minus" class="step" type="button" aria-label="Remove minutes">−</button>
+            <label class="minutes">
+              <input id="minutes" type="number" min="1" max="240" value="25" />
+              <span>min</span>
+            </label>
+            <button id="plus" class="step" type="button" aria-label="Add minutes">+</button>
+          </div>
         </div>
       </div>
+      <h2 id="current-task" class="current-task" hidden></h2>
 
-      <svg class="dial" viewBox="0 0 200 200" aria-hidden="true">
+      <svg id="dial" class="dial" viewBox="0 0 200 200" aria-hidden="true">
         <defs>
           <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="40" y1="30" x2="160" y2="170">
             <stop offset="0" stop-color="#f7e08a" />
@@ -38,9 +51,50 @@
         <circle class="hub" cx="100" cy="100" r="5" />
       </svg>
 
-      <p id="remaining" class="remaining">25:00</p>
+      <p id="remaining" class="remaining">0:00</p>
       <p id="times" class="times" hidden></p>
+      <div class="controls">
+        <button id="toggle" class="toggle" type="button">Start</button>
+        <button id="break" class="secondary" type="button" hidden>Break</button>
+      </div>
       <p id="status" class="status"></p>
+      <section id="current-notes" class="panel" hidden>
+        <h3>Notes</h3>
+      </section>
+      <section class="panel">
+        <ul id="feed" class="feed"></ul>
+      </section>
+    </main>
+
+    <main id="history-view" class="view history-view" hidden>
+      <div class="filters">
+        <div class="ranges">
+          <button type="button" data-range="today">Today</button>
+          <button type="button" data-range="week" class="active">7 days</button>
+          <button type="button" data-range="month">30 days</button>
+          <button type="button" data-range="all">All</button>
+        </div>
+        <div class="filter-row">
+          <label>From <input id="from" type="date" /></label>
+          <label>To <input id="to" type="date" /></label>
+          <input id="search" type="search" placeholder="Search tasks and notes" />
+        </div>
+      </div>
+      <p id="summary" class="summary"></p>
+      <ul id="sessions" class="sessions"></ul>
+    </main>
+
+    <main id="ask-view" class="view ask-view" hidden>
+      <div class="ask-scope">
+        <span id="scope-label" class="scope-label"></span>
+        <button id="scope-all" class="link" type="button" hidden>Ask about all sessions</button>
+        <button id="new-chat" class="link" type="button">New chat</button>
+      </div>
+      <ul id="chat" class="chat"></ul>
+      <form id="ask-form" class="ask-form">
+        <textarea id="question" rows="3" placeholder="Ask Claude about your sessions and notes… (Ctrl+Enter)"></textarea>
+        <button id="ask" class="toggle" type="submit">Ask</button>
+      </form>
     </main>
   </body>
 </html>

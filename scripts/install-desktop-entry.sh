@@ -1,6 +1,6 @@
 #!/bin/sh
-# Installs the release build for the current user with an app-menu entry and, on KDE Plasma,
-# a pinned taskbar launcher. Build first: npx tauri build --no-bundle
+# Installs the release build for the current user with an app-menu entry, a login autostart
+# entry and, on KDE Plasma, a pinned taskbar launcher. Build first: npx tauri build --no-bundle
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -23,6 +23,8 @@ Terminal=false
 Categories=Utility;
 StartupWMClass=time_management
 EOF
+mkdir -p "$HOME/.config/autostart"
+cp "$HOME/.local/share/applications/$app_id.desktop" "$HOME/.config/autostart/$app_id.desktop"
 if command -v kbuildsycoca6 > /dev/null; then kbuildsycoca6 > /dev/null 2>&1 || true; fi
 
 # Pin to the Plasma taskbar; an unset launcher list means Plasma's defaults, so keep those.

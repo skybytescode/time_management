@@ -1,0 +1,311 @@
+//! Session history in a single SQLite file in the app's data directory.
+
+use std::path::Path;
+
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+
+pub type Db = Connection;
+
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY,
+    task TEXT NOT NULL,
+    planned_minutes INTEGER,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER,                 -- NULL while running
+    last_seen_ms INTEGER NOT NULL   -- heartbeat, closes sessions cut short by a crash
+);
+CREATE TABLE IF NOT EXISTS breaks (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER
+);
+-- Everything the assistant said; greetings have no session.
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+    at_ms INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    observation TEXT
+);
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL,
+    text TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_start ON sessions(start_ms);
+CREATE INDEX IF NOT EXISTS breaks_session ON breaks(session_id);
+CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id);
+CREATE INDEX IF NOT EXISTS notes_session ON notes(session_id);
+";
+
+#[derive(Clone, Serialize)]
+pub struct Interval {
+    pub start_ms: i64,
+    pub end_ms: Option<i64>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct Message {
+    pub session_id: Option<i64>,
+    pub at_ms: i64,
+    pub kind: String,
+    pub text: String,
+    pub observation: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct Note {
+    pub id: i64,
+    pub session_id: i64,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+    pub text: String,
+}
+
+#[derive(Serialize)]
+pub struct SessionRecord {
+    pub id: i64,
+    pub task: String,
+    pub planned_minutes: Option<i64>,
+    pub start_ms: i64,
+    pub end_ms: Option<i64>,
+    pub breaks: Vec<Interval>,
+    pub messages: Vec<Message>,
+    pub notes: Vec<Note>,
+}
+
+#[derive(Deserialize)]
+pub struct HistoryFilter {
+    pub from_ms: Option<i64>,
+    pub to_ms: Option<i64>,
+    pub query: Option<String>,
+}
+
+pub fn open(path: &Path) -> rusqlite::Result<Db> {
+    let db = Connection::open(path)?;
+    db.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+    db.execute_batch(SCHEMA)?;
+    // Sessions left running by a crash or power loss end where they were last seen.
+    db.execute_batch(
+        "UPDATE sessions SET end_ms = last_seen_ms WHERE end_ms IS NULL;
+         UPDATE breaks SET end_ms = (SELECT end_ms FROM sessions WHERE id = session_id) WHERE end_ms IS NULL;",
+    )?;
+    Ok(db)
+}
+
+pub fn create_session(db: &Db, task: &str, planned_minutes: Option<u32>, start_ms: i64) -> rusqlite::Result<i64> {
+    db.execute(
+        "INSERT INTO sessions (task, planned_minutes, start_ms, last_seen_ms) VALUES (?1, ?2, ?3, ?3)",
+        params![task, planned_minutes, start_ms],
+    )?;
+    Ok(db.last_insert_rowid())
+}
+
+pub fn touch_session(db: &Db, id: i64, now_ms: i64) -> rusqlite::Result<()> {
+    db.execute("UPDATE sessions SET last_seen_ms = ?2 WHERE id = ?1", params![id, now_ms])?;
+    Ok(())
+}
+
+pub fn end_session(db: &Db, id: i64, end_ms: i64) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE sessions SET end_ms = ?2, last_seen_ms = ?2 WHERE id = ?1",
+        params![id, end_ms],
+    )?;
+    end_break(db, id, end_ms)
+}
+
+pub fn start_break(db: &Db, session_id: i64, start_ms: i64) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO breaks (session_id, start_ms) VALUES (?1, ?2)",
+        params![session_id, start_ms],
+    )?;
+    Ok(())
+}
+
+pub fn end_break(db: &Db, session_id: i64, end_ms: i64) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE breaks SET end_ms = ?2 WHERE session_id = ?1 AND end_ms IS NULL",
+        params![session_id, end_ms],
+    )?;
+    Ok(())
+}
+
+pub fn add_message(db: &Db, message: &Message) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO messages (session_id, at_ms, kind, text, observation) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![message.session_id, message.at_ms, message.kind, message.text, message.observation],
+    )?;
+    Ok(())
+}
+
+fn message_row(row: &rusqlite::Row) -> rusqlite::Result<Message> {
+    Ok(Message {
+        session_id: row.get(0)?,
+        at_ms: row.get(1)?,
+        kind: row.get(2)?,
+        text: row.get(3)?,
+        observation: row.get(4)?,
+    })
+}
+
+pub fn session_messages(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Message>> {
+    db.prepare("SELECT session_id, at_ms, kind, text, observation FROM messages WHERE session_id = ?1 ORDER BY at_ms")?
+        .query_map([session_id], message_row)?
+        .collect()
+}
+
+pub fn latest_greeting(db: &Db, since_ms: i64) -> rusqlite::Result<Option<Message>> {
+    db.query_row(
+        "SELECT session_id, at_ms, kind, text, observation FROM messages
+         WHERE kind = 'greeting' AND at_ms >= ?1 ORDER BY at_ms DESC LIMIT 1",
+        [since_ms],
+        message_row,
+    )
+    .optional()
+}
+
+fn note_row(row: &rusqlite::Row) -> rusqlite::Result<Note> {
+    Ok(Note {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        created_ms: row.get(2)?,
+        updated_ms: row.get(3)?,
+        text: row.get(4)?,
+    })
+}
+
+const NOTE_COLUMNS: &str = "id, session_id, created_ms, updated_ms, text";
+
+pub fn session_notes(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Note>> {
+    db.prepare(&format!("SELECT {NOTE_COLUMNS} FROM notes WHERE session_id = ?1 ORDER BY created_ms"))?
+        .query_map([session_id], note_row)?
+        .collect()
+}
+
+pub fn add_note(db: &Db, session_id: i64, text: &str, now_ms: i64) -> rusqlite::Result<Note> {
+    db.execute(
+        "INSERT INTO notes (session_id, created_ms, updated_ms, text) VALUES (?1, ?2, ?2, ?3)",
+        params![session_id, now_ms, text],
+    )?;
+    db.query_row(&format!("SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?1"), [db.last_insert_rowid()], note_row)
+}
+
+pub fn update_note(db: &Db, id: i64, text: &str, now_ms: i64) -> rusqlite::Result<Note> {
+    db.execute("UPDATE notes SET text = ?2, updated_ms = ?3 WHERE id = ?1", params![id, text, now_ms])?;
+    db.query_row(&format!("SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?1"), [id], note_row)
+}
+
+pub fn delete_note(db: &Db, id: i64) -> rusqlite::Result<()> {
+    db.execute("DELETE FROM notes WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+fn session_breaks(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Interval>> {
+    db.prepare("SELECT start_ms, end_ms FROM breaks WHERE session_id = ?1 ORDER BY start_ms")?
+        .query_map([session_id], |row| Ok(Interval { start_ms: row.get(0)?, end_ms: row.get(1)? }))?
+        .collect()
+}
+
+/// Sessions started in the filter's range whose task or notes contain the query, newest first.
+pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionRecord>> {
+    let pattern = filter.query.as_deref().map(|q| {
+        let escaped = q.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        format!("%{escaped}%")
+    });
+    let mut sessions: Vec<SessionRecord> = db
+        .prepare(
+            "SELECT id, task, planned_minutes, start_ms, end_ms FROM sessions
+             WHERE (?1 IS NULL OR start_ms >= ?1) AND (?2 IS NULL OR start_ms < ?2)
+               AND (?3 IS NULL OR task LIKE ?3 ESCAPE '\\' OR EXISTS
+                    (SELECT 1 FROM notes WHERE session_id = sessions.id AND text LIKE ?3 ESCAPE '\\'))
+             ORDER BY start_ms DESC",
+        )?
+        .query_map(params![filter.from_ms, filter.to_ms, pattern], |row| {
+            Ok(SessionRecord {
+                id: row.get(0)?,
+                task: row.get(1)?,
+                planned_minutes: row.get(2)?,
+                start_ms: row.get(3)?,
+                end_ms: row.get(4)?,
+                breaks: Vec::new(),
+                messages: Vec::new(),
+                notes: Vec::new(),
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    for session in &mut sessions {
+        session.breaks = session_breaks(db, session.id)?;
+        session.messages = session_messages(db, session.id)?;
+        session.notes = session_notes(db, session.id)?;
+    }
+    Ok(sessions)
+}
+
+/// One line per finished session since `since_ms`, for the assistant's context.
+pub fn recent_summary(db: &Db, since_ms: i64) -> rusqlite::Result<Vec<String>> {
+    db.prepare(
+        "SELECT task, start_ms, end_ms - start_ms
+                - COALESCE((SELECT SUM(end_ms - start_ms) FROM breaks WHERE session_id = sessions.id), 0)
+         FROM sessions WHERE start_ms >= ?1 AND end_ms IS NOT NULL ORDER BY start_ms",
+    )?
+    .query_map([since_ms], |row| {
+        let (task, start_ms, worked_ms): (String, i64, i64) = (row.get(0)?, row.get(1)?, row.get(2)?);
+        let start = chrono::DateTime::from_timestamp_millis(start_ms)
+            .map(|t| t.with_timezone(&chrono::Local).format("%A %H:%M").to_string())
+            .unwrap_or_default();
+        Ok(format!("{start}: \"{task}\" for {} minutes", worked_ms / 60_000))
+    })?
+    .collect()
+}
+
+pub fn get_setting(db: &Db, key: &str) -> rusqlite::Result<Option<String>> {
+    db.query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| row.get(0))
+        .optional()
+}
+
+pub fn set_setting(db: &Db, key: &str, value: &str) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notes_belong_to_their_session_and_are_searchable() {
+        let db = open(Path::new(":memory:")).unwrap();
+        let first = create_session(&db, "Write report", None, 1_000).unwrap();
+        let second = create_session(&db, "Fix login bug", Some(25), 2_000).unwrap();
+
+        let note = add_note(&db, first, "ask Ion about the 100% figure", 1_500).unwrap();
+        add_note(&db, second, "token expires too early", 2_500).unwrap();
+        let edited = update_note(&db, note.id, "ask Ion about the 100% figure, again", 1_800).unwrap();
+        assert_eq!((edited.created_ms, edited.updated_ms), (1_500, 1_800));
+
+        let search = |query: &str| {
+            let filter = HistoryFilter { from_ms: None, to_ms: None, query: Some(query.into()) };
+            history(&db, &filter).unwrap().into_iter().map(|r| (r.id, r.notes.len())).collect::<Vec<_>>()
+        };
+        assert_eq!(search("token"), vec![(second, 1)]);
+        assert_eq!(search("100%"), vec![(first, 1)]);
+        assert_eq!(search("100_"), vec![]);
+
+        delete_note(&db, note.id).unwrap();
+        assert!(session_notes(&db, first).unwrap().is_empty());
+        assert_eq!(session_notes(&db, second).unwrap().len(), 1);
+    }
+}
