@@ -26,7 +26,11 @@ fn play(file: &PathBuf) -> Result<(), String> {
         .arg(file)
         .status()
         .map_err(|e| format!("could not run paplay: {e}"))?;
-    if status.success() { Ok(()) } else { Err(format!("paplay failed: {status}")) }
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("paplay failed: {status}"))
+    }
 }
 
 /// Speaks `text`, blocking until done.

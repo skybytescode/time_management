@@ -21,7 +21,9 @@ const HOSTS_MARKER: &str = "# BEGIN time-management";
 
 fn run_blocker(args: &[String]) -> Result<(), String> {
     if !Path::new(BLOCKER).exists() {
-        return Err("site blocker not installed, run `sudo sh scripts/install-site-blocker.sh` once".into());
+        return Err(
+            "site blocker not installed, run `sudo sh scripts/install-site-blocker.sh` once".into(),
+        );
     }
     let output = Command::new("sudo")
         .arg("-n")

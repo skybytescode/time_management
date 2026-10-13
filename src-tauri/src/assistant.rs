@@ -19,7 +19,7 @@ const QUICK_MODEL: &str = "haiku";
 const VISION_MODEL: &str = "sonnet";
 const CLAUDE_TIMEOUT: Duration = Duration::from_secs(120);
 /// Don't greet again if the app is reopened within this time.
-const GREETING_GAP_MS: i64 = 4 * 3600_000;
+const GREETING_GAP_MS: i64 = 4 * 3_600_000;
 /// Screenshots are scaled down to this longest side before sending.
 const SHOT_MAX_SIDE: u32 = 1568;
 
@@ -46,15 +46,40 @@ fn claude_bin() -> PathBuf {
 
 /// Sends one user message (text and image blocks) and returns the reply: structured if a
 /// `schema` is given, a string otherwise.
-fn ask(app: &AppHandle, model: &str, system: &str, content: Vec<Value>, schema: Option<&Value>) -> Result<Value, String> {
+fn ask(
+    app: &AppHandle,
+    model: &str,
+    system: &str,
+    content: Vec<Value>,
+    schema: Option<&Value>,
+) -> Result<Value, String> {
     // An empty working directory, so no project CLAUDE.md is picked up.
-    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("claude");
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("claude");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut command = Command::new(claude_bin());
     command
         .current_dir(&dir)
-        .args(["-p", "--model", model, "--tools", "", "--no-session-persistence", "--setting-sources", ""])
-        .args(["--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
+        .args([
+            "-p",
+            "--model",
+            model,
+            "--tools",
+            "",
+            "--no-session-persistence",
+            "--setting-sources",
+            "",
+        ])
+        .args([
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ])
         .arg("--system-prompt")
         .arg(system);
     if let Some(schema) = schema {
@@ -89,7 +114,10 @@ fn ask(app: &AppHandle, model: &str, system: &str, content: Vec<Value>, schema: 
         }
         thread::sleep(Duration::from_millis(100));
     }
-    let output = reader.join().expect("reader thread").map_err(|e| e.to_string())?;
+    let output = reader
+        .join()
+        .expect("reader thread")
+        .map_err(|e| e.to_string())?;
 
     let result = output
         .lines()
@@ -99,7 +127,11 @@ fn ask(app: &AppHandle, model: &str, system: &str, content: Vec<Value>, schema: 
     if result["is_error"] == true {
         return Err(format!("claude failed: {}", result["result"]));
     }
-    let reply = if schema.is_some() { &result["structured_output"] } else { &result["result"] };
+    let reply = if schema.is_some() {
+        &result["structured_output"]
+    } else {
+        &result["result"]
+    };
     match reply {
         Value::Null => Err("claude gave no reply".into()),
         reply => Ok(reply.clone()),
@@ -107,8 +139,17 @@ fn ask(app: &AppHandle, model: &str, system: &str, content: Vec<Value>, schema: 
 }
 
 fn ask_message(app: &AppHandle, prompt: String) -> Result<String, String> {
-    let reply = ask(app, QUICK_MODEL, PERSONA, vec![json!({ "type": "text", "text": prompt })], Some(&message_schema()))?;
-    reply["message"].as_str().map(str::to_string).ok_or("reply without message".into())
+    let reply = ask(
+        app,
+        QUICK_MODEL,
+        PERSONA,
+        vec![json!({ "type": "text", "text": prompt })],
+        Some(&message_schema()),
+    )?;
+    reply["message"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or("reply without message".into())
 }
 
 fn period(hour: u32) -> &'static str {
@@ -122,7 +163,11 @@ fn period(hour: u32) -> &'static str {
 
 fn time_context() -> String {
     let now = Local::now();
-    format!("{} ({})", now.format("%A %-d %B %Y, %H:%M"), period(now.hour()))
+    format!(
+        "{} ({})",
+        now.format("%A %-d %B %Y, %H:%M"),
+        period(now.hour())
+    )
 }
 
 /// Picks one of `options`, different from run to run.
@@ -133,12 +178,28 @@ fn pick<'a>(options: &[&'a str]) -> &'a str {
 fn recent_sessions(app: &AppHandle, since_ms: i64) -> String {
     let state = app.state::<AppState>();
     let lines = db::recent_summary(&state.db.lock().unwrap(), since_ms).unwrap_or_default();
-    if lines.is_empty() { "none recorded".into() } else { lines.join("\n") }
+    if lines.is_empty() {
+        "none recorded".into()
+    } else {
+        lines.join("\n")
+    }
 }
 
 /// Saves the message, shows it in the window and says it.
-fn deliver(app: &AppHandle, session_id: Option<i64>, kind: &str, text: String, observation: Option<String>) {
-    let message = db::Message { session_id, at_ms: now_ms(), kind: kind.into(), text, observation };
+fn deliver(
+    app: &AppHandle,
+    session_id: Option<i64>,
+    kind: &str,
+    text: String,
+    observation: Option<String>,
+) {
+    let message = db::Message {
+        session_id,
+        at_ms: now_ms(),
+        kind: kind.into(),
+        text,
+        observation,
+    };
     {
         let state = app.state::<AppState>();
         if let Err(e) = db::add_message(&state.db.lock().unwrap(), &message) {
@@ -159,7 +220,10 @@ pub fn greet(app: &AppHandle) {
     {
         let state = app.state::<AppState>();
         let db = state.db.lock().unwrap();
-        let last = db::get_setting(&db, "last_greeting_ms").ok().flatten().and_then(|v| v.parse::<i64>().ok());
+        let last = db::get_setting(&db, "last_greeting_ms")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse::<i64>().ok());
         if last.is_some_and(|last| now_ms() - last < GREETING_GAP_MS) {
             return;
         }
@@ -172,15 +236,26 @@ pub fn greet(app: &AppHandle) {
          Greet Sergiu by name with a greeting that fits the time of day, then add something \
          motivating for what's ahead. You may refer to recent work. Two or three sentences.",
         time_context(),
-        recent_sessions(app, now_ms() - 3 * 24 * 3600_000),
+        recent_sessions(app, now_ms() - 3 * 24 * 3_600_000),
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
         eprintln!("greeting: {e}");
         let greeting = match period(Local::now().hour()) {
-            "morning" => pick(&["Good morning, Sergiu!", "Morning, Sergiu!", "Hello Sergiu, good morning!"]),
-            "afternoon" => pick(&["Good afternoon, Sergiu!", "Hello Sergiu!", "Good day, Sergiu!"]),
+            "morning" => pick(&[
+                "Good morning, Sergiu!",
+                "Morning, Sergiu!",
+                "Hello Sergiu, good morning!",
+            ]),
+            "afternoon" => pick(&[
+                "Good afternoon, Sergiu!",
+                "Hello Sergiu!",
+                "Good day, Sergiu!",
+            ]),
             "evening" => pick(&["Good evening, Sergiu!", "Hello Sergiu, good evening!"]),
-            _ => pick(&["Hello Sergiu, working late tonight?", "Hi Sergiu, it's a late one."]),
+            _ => pick(&[
+                "Hello Sergiu, working late tonight?",
+                "Hi Sergiu, it's a late one.",
+            ]),
         };
         let push = pick(&[
             "Let's make today count.",
@@ -195,7 +270,10 @@ pub fn greet(app: &AppHandle) {
 
 fn session_kind(session: &Session) -> String {
     match session.end_ms {
-        Some(end_ms) => format!("a timed session of {} minutes", (end_ms - session.start_ms) / 60_000),
+        Some(end_ms) => format!(
+            "a timed session of {} minutes",
+            (end_ms - session.start_ms) / 60_000
+        ),
         None => "an open-ended session that ends when Sergiu decides".into(),
     }
 }
@@ -210,13 +288,25 @@ pub fn session_started(app: &AppHandle, session: &Session) {
         time_context(),
         session_kind(session),
         session.task,
-        recent_sessions(app, Local::now().date_naive().and_hms_opt(0, 0, 0)
-            .and_then(|t| t.and_local_timezone(Local).single())
-            .map_or(now_ms() - 12 * 3600_000, |t| t.timestamp_millis())),
+        recent_sessions(
+            app,
+            Local::now()
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .and_then(|t| t.and_local_timezone(Local).single())
+                .map_or(now_ms() - 12 * 3_600_000, |t| t.timestamp_millis())
+        ),
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
         eprintln!("session start: {e}");
-        format!("{} Good luck!", pick(&["Session started.", "Here we go.", "Your session is running."]))
+        format!(
+            "{} Good luck!",
+            pick(&[
+                "Session started.",
+                "Here we go.",
+                "Your session is running."
+            ])
+        )
     });
     deliver(app, Some(session.id), "start", text, None);
 }
@@ -226,23 +316,39 @@ pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: 
     let worked = (end_ms - session.start_ms - session.break_ms_until(end_ms)) / 60_000;
     let notes = {
         let state = app.state::<AppState>();
-        let messages = db::session_messages(&state.db.lock().unwrap(), session.id).unwrap_or_default();
-        messages.into_iter().filter_map(|m| m.observation).collect::<Vec<_>>().join("\n")
+        let messages =
+            db::session_messages(&state.db.lock().unwrap(), session.id).unwrap_or_default();
+        messages
+            .into_iter()
+            .filter_map(|m| m.observation)
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let prompt = format!(
         "Sergiu just {} a work session on \"{}\": {worked} minutes of work and {} breaks. It is {}.\n\
          What you saw on screen during the session:\n{}\n\n\
          Give a short closing remark: acknowledge the work specifically and suggest some rest. \
          One or two sentences.",
-        if finished { "finished (the timer ran out)" } else { "ended" },
+        if finished {
+            "finished (the timer ran out)"
+        } else {
+            "ended"
+        },
         session.task,
         session.breaks,
         time_context(),
-        if notes.is_empty() { "nothing recorded" } else { &notes },
+        if notes.is_empty() {
+            "nothing recorded"
+        } else {
+            &notes
+        },
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
         eprintln!("session end: {e}");
-        format!("Session finished, {worked} minutes of work. {}", pick(&["Take a rest.", "Well done, have a break."]))
+        format!(
+            "Session finished, {worked} minutes of work. {}",
+            pick(&["Take a rest.", "Well done, have a break."])
+        )
     });
     deliver(app, Some(session.id), "finished", text, None);
 }
@@ -260,7 +366,11 @@ pub fn break_over(app: &AppHandle, session: &Session) {
 
 /// Screenshot of the active window, scaled down and JPEG-encoded in base64. Nothing stays on disk.
 pub fn capture_screen(app: &AppHandle) -> Result<String, String> {
-    let file = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("checkin.png");
+    let file = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("checkin.png");
     let status = Command::new("spectacle")
         .args(["-b", "-n", "-a", "-o"])
         .arg(&file)
@@ -269,13 +379,19 @@ pub fn capture_screen(app: &AppHandle) -> Result<String, String> {
         .stderr(Stdio::null())
         .status()
         .map_err(|e| format!("could not run spectacle: {e}"))?;
-    let image = if status.success() { image::open(&file).map_err(|e| e.to_string()) } else {
+    let image = if status.success() {
+        image::open(&file).map_err(|e| e.to_string())
+    } else {
         Err(format!("spectacle failed: {status}"))
     };
     let _ = std::fs::remove_file(&file);
     let image = image?;
     let image = if image.width().max(image.height()) > SHOT_MAX_SIDE {
-        image.resize(SHOT_MAX_SIDE, SHOT_MAX_SIDE, image::imageops::FilterType::Triangle)
+        image.resize(
+            SHOT_MAX_SIDE,
+            SHOT_MAX_SIDE,
+            image::imageops::FilterType::Triangle,
+        )
     } else {
         image
     };
@@ -298,8 +414,16 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
         let messages = db::session_messages(&db, session.id).unwrap_or_default();
         let notes = db::session_notes(&db, session.id).unwrap_or_default();
         (
-            messages.iter().map(|m| format!("[{}] {}", m.kind, m.text)).collect::<Vec<_>>().join("\n"),
-            notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n"),
+            messages
+                .iter()
+                .map(|m| format!("[{}] {}", m.kind, m.text))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            notes
+                .iter()
+                .map(|n| format!("- {}", n.text))
+                .collect::<Vec<_>>()
+                .join("\n"),
         )
     };
     let prompt = format!(
@@ -318,7 +442,11 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
         time_context(),
         session.task,
         session.breaks,
-        if earlier.is_empty() { "nothing yet" } else { &earlier },
+        if earlier.is_empty() {
+            "nothing yet"
+        } else {
+            &earlier
+        },
         if notes.is_empty() { "none" } else { &notes },
     );
     let mut content: Vec<Value> = shots
@@ -348,7 +476,9 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
         Err(e) => {
             eprintln!("check-in: {e}");
             if since_break >= 60 {
-                let text = format!("You've been working {since_break} minutes without a break. Time for five minutes away from the screen.");
+                let text = format!(
+                    "You've been working {since_break} minutes without a break. Time for five minutes away from the screen."
+                );
                 deliver(app, Some(session.id), "break", text, None);
             }
         }
@@ -376,7 +506,9 @@ fn local(ms: i64, format: &str) -> String {
 }
 
 fn describe_session(record: &db::SessionRecord) -> String {
-    let end = record.end_ms.map_or("still running".into(), |ms| local(ms, "%H:%M"));
+    let end = record
+        .end_ms
+        .map_or("still running".into(), |ms| local(ms, "%H:%M"));
     let mut text = format!(
         "## Session {}: \"{}\"\n{} to {end}, {} breaks\n",
         record.id,
@@ -387,14 +519,27 @@ fn describe_session(record: &db::SessionRecord) -> String {
     if !record.notes.is_empty() {
         text.push_str("Notes:\n");
         for note in &record.notes {
-            text.push_str(&format!("- [{}] {}\n", local(note.created_ms, "%H:%M"), note.text));
+            text.push_str(&format!(
+                "- [{}] {}\n",
+                local(note.created_ms, "%H:%M"),
+                note.text
+            ));
         }
     }
-    let said: Vec<_> = record.messages.iter().filter(|m| m.kind != "greeting").collect();
+    let said: Vec<_> = record
+        .messages
+        .iter()
+        .filter(|m| m.kind != "greeting")
+        .collect();
     if !said.is_empty() {
         text.push_str("Assistant during the session:\n");
         for m in said {
-            text.push_str(&format!("- [{} {}] {}", local(m.at_ms, "%H:%M"), m.kind, m.text));
+            text.push_str(&format!(
+                "- [{} {}] {}",
+                local(m.at_ms, "%H:%M"),
+                m.kind,
+                m.text
+            ));
             if let Some(observation) = &m.observation {
                 text.push_str(&format!(" (saw: {observation})"));
             }
@@ -405,15 +550,26 @@ fn describe_session(record: &db::SessionRecord) -> String {
 }
 
 /// Answers the last question of `conversation` about one session, or all of them.
-pub fn ask_about_notes(app: &AppHandle, session_id: Option<i64>, conversation: Vec<ChatTurn>) -> Result<String, String> {
+pub fn ask_about_notes(
+    app: &AppHandle,
+    session_id: Option<i64>,
+    conversation: Vec<ChatTurn>,
+) -> Result<String, String> {
     let records = {
         let state = app.state::<AppState>();
-        let filter = db::HistoryFilter { from_ms: None, to_ms: None, query: None };
+        let filter = db::HistoryFilter {
+            from_ms: None,
+            to_ms: None,
+            query: None,
+        };
         db::history(&state.db.lock().unwrap(), &filter).map_err(|e| e.to_string())?
     };
     // Newest sessions first, until the context is full.
     let mut history = String::new();
-    for record in records.iter().filter(|r| session_id.is_none_or(|id| r.id == id)) {
+    for record in records
+        .iter()
+        .filter(|r| session_id.is_none_or(|id| r.id == id))
+    {
         let text = describe_session(record);
         if history.len() + text.len() > NOTES_CONTEXT_CHARS {
             break;
@@ -421,7 +577,11 @@ pub fn ask_about_notes(app: &AppHandle, session_id: Option<i64>, conversation: V
         history.push_str(&text);
         history.push('\n');
     }
-    let scope = if session_id.is_some() { "the session the question is about" } else { "Sergiu's sessions, newest first" };
+    let scope = if session_id.is_some() {
+        "the session the question is about"
+    } else {
+        "Sergiu's sessions, newest first"
+    };
     let mut transcript = String::new();
     for turn in &conversation {
         let who = if turn.role == "user" { "Sergiu" } else { "You" };
@@ -430,8 +590,21 @@ pub fn ask_about_notes(app: &AppHandle, session_id: Option<i64>, conversation: V
     let prompt = format!(
         "It is {}. Here is {scope}:\n\n{}\n---\nConversation so far (answer Sergiu's last message):\n\n{transcript}",
         time_context(),
-        if history.is_empty() { "No sessions recorded yet.\n".into() } else { history },
+        if history.is_empty() {
+            "No sessions recorded yet.\n".into()
+        } else {
+            history
+        },
     );
-    let reply = ask(app, VISION_MODEL, NOTES_PERSONA, vec![json!({ "type": "text", "text": prompt })], None)?;
-    reply.as_str().map(|s| s.trim().to_string()).ok_or("reply without text".into())
+    let reply = ask(
+        app,
+        VISION_MODEL,
+        NOTES_PERSONA,
+        vec![json!({ "type": "text", "text": prompt })],
+        None,
+    )?;
+    reply
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .ok_or("reply without text".into())
 }

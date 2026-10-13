@@ -65,7 +65,11 @@ fn current_session(app: &AppHandle) -> Option<Session> {
 fn take_session(app: &AppHandle, id: i64) -> Option<Session> {
     let state = app.state::<AppState>();
     let mut session = state.session.lock().unwrap();
-    if session.as_ref().map(|s| s.id) == Some(id) { session.take() } else { None }
+    if session.as_ref().map(|s| s.id) == Some(id) {
+        session.take()
+    } else {
+        None
+    }
 }
 
 fn end_session(app: &AppHandle, session: &Session, end_ms: i64) {
@@ -94,7 +98,9 @@ fn watch_session(app: AppHandle, id: i64) {
     // Poll the wall clock instead of sleeping long, so time spent suspended counts.
     loop {
         thread::sleep(Duration::from_millis(500));
-        let Some(session) = current_session(&app).filter(|s| s.id == id) else { return };
+        let Some(session) = current_session(&app).filter(|s| s.id == id) else {
+            return;
+        };
         let now = now_ms();
 
         if now - last_heartbeat >= MINUTE_MS {
@@ -103,7 +109,9 @@ fn watch_session(app: AppHandle, id: i64) {
         }
 
         if session.end_ms.is_some_and(|end_ms| now >= end_ms) {
-            let Some(session) = take_session(&app, id) else { return };
+            let Some(session) = take_session(&app, id) else {
+                return;
+            };
             let end_ms = session.end_ms.unwrap();
             end_session(&app, &session, end_ms);
             let _ = app.emit("session-finished", ());
@@ -164,14 +172,19 @@ fn get_messages(state: State<AppState>) -> Result<Vec<db::Message>, String> {
     let db = state.db.lock().unwrap();
     match session_id {
         Some(id) => db::session_messages(&db, id).map_err(err),
-        None => db::latest_greeting(&db, now_ms() - 4 * 3600_000)
+        None => db::latest_greeting(&db, now_ms() - 4 * 3_600_000)
             .map(|greeting| greeting.into_iter().collect())
             .map_err(err),
     }
 }
 
 #[tauri::command]
-fn start_session(task: String, minutes: Option<u32>, app: AppHandle, state: State<AppState>) -> Result<Session, String> {
+fn start_session(
+    task: String,
+    minutes: Option<u32>,
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<Session, String> {
     let task = task.trim().to_string();
     if task.is_empty() {
         return Err("write what you're working on first".into());
@@ -185,7 +198,8 @@ fn start_session(task: String, minutes: Option<u32>, app: AppHandle, state: Stat
     }
 
     let start_ms = now_ms();
-    let id = db::create_session(&state.db.lock().unwrap(), &task, minutes, start_ms).map_err(err)?;
+    let id =
+        db::create_session(&state.db.lock().unwrap(), &task, minutes, start_ms).map_err(err)?;
     let session = Session {
         id,
         task,
@@ -208,7 +222,9 @@ fn start_session(task: String, minutes: Option<u32>, app: AppHandle, state: Stat
 
 #[tauri::command]
 fn stop_session(app: AppHandle, state: State<AppState>) {
-    let Some(session) = state.session.lock().unwrap().take() else { return };
+    let Some(session) = state.session.lock().unwrap().take() else {
+        return;
+    };
     let end_ms = now_ms();
     end_session(&app, &session, end_ms);
     thread::spawn(move || assistant::session_ended(&app, &session, end_ms, false));
@@ -239,7 +255,10 @@ fn set_break(on: bool, state: State<AppState>) -> Result<Session, String> {
 }
 
 #[tauri::command]
-fn history(filter: db::HistoryFilter, state: State<AppState>) -> Result<Vec<db::SessionRecord>, String> {
+fn history(
+    filter: db::HistoryFilter,
+    state: State<AppState>,
+) -> Result<Vec<db::SessionRecord>, String> {
     db::history(&state.db.lock().unwrap(), &filter).map_err(err)
 }
 
@@ -250,12 +269,22 @@ fn get_notes(session_id: i64, state: State<AppState>) -> Result<Vec<db::Note>, S
 
 fn note_text(text: &str) -> Result<&str, String> {
     let text = text.trim();
-    if text.is_empty() { Err("the note is empty".into()) } else { Ok(text) }
+    if text.is_empty() {
+        Err("the note is empty".into())
+    } else {
+        Ok(text)
+    }
 }
 
 #[tauri::command]
 fn add_note(session_id: i64, text: String, state: State<AppState>) -> Result<db::Note, String> {
-    db::add_note(&state.db.lock().unwrap(), session_id, note_text(&text)?, now_ms()).map_err(err)
+    db::add_note(
+        &state.db.lock().unwrap(),
+        session_id,
+        note_text(&text)?,
+        now_ms(),
+    )
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -275,9 +304,11 @@ async fn ask_notes(
     conversation: Vec<assistant::ChatTurn>,
     app: AppHandle,
 ) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || assistant::ask_about_notes(&app, session_id, conversation))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        assistant::ask_about_notes(&app, session_id, conversation)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -288,7 +319,10 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             fs::create_dir_all(&dir)?;
             let db = db::open(&dir.join("history.db"))?;
-            app.manage(AppState { session: Mutex::new(None), db: Mutex::new(db) });
+            app.manage(AppState {
+                session: Mutex::new(None),
+                db: Mutex::new(db),
+            });
 
             // Leftover block from a session that didn't end cleanly (crash, power loss).
             let _ = blocker::unblock_sites();

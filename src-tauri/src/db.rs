@@ -103,7 +103,12 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
     Ok(db)
 }
 
-pub fn create_session(db: &Db, task: &str, planned_minutes: Option<u32>, start_ms: i64) -> rusqlite::Result<i64> {
+pub fn create_session(
+    db: &Db,
+    task: &str,
+    planned_minutes: Option<u32>,
+    start_ms: i64,
+) -> rusqlite::Result<i64> {
     db.execute(
         "INSERT INTO sessions (task, planned_minutes, start_ms, last_seen_ms) VALUES (?1, ?2, ?3, ?3)",
         params![task, planned_minutes, start_ms],
@@ -112,7 +117,10 @@ pub fn create_session(db: &Db, task: &str, planned_minutes: Option<u32>, start_m
 }
 
 pub fn touch_session(db: &Db, id: i64, now_ms: i64) -> rusqlite::Result<()> {
-    db.execute("UPDATE sessions SET last_seen_ms = ?2 WHERE id = ?1", params![id, now_ms])?;
+    db.execute(
+        "UPDATE sessions SET last_seen_ms = ?2 WHERE id = ?1",
+        params![id, now_ms],
+    )?;
     Ok(())
 }
 
@@ -187,9 +195,11 @@ fn note_row(row: &rusqlite::Row) -> rusqlite::Result<Note> {
 const NOTE_COLUMNS: &str = "id, session_id, created_ms, updated_ms, text";
 
 pub fn session_notes(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Note>> {
-    db.prepare(&format!("SELECT {NOTE_COLUMNS} FROM notes WHERE session_id = ?1 ORDER BY created_ms"))?
-        .query_map([session_id], note_row)?
-        .collect()
+    db.prepare(&format!(
+        "SELECT {NOTE_COLUMNS} FROM notes WHERE session_id = ?1 ORDER BY created_ms"
+    ))?
+    .query_map([session_id], note_row)?
+    .collect()
 }
 
 pub fn add_note(db: &Db, session_id: i64, text: &str, now_ms: i64) -> rusqlite::Result<Note> {
@@ -197,12 +207,23 @@ pub fn add_note(db: &Db, session_id: i64, text: &str, now_ms: i64) -> rusqlite::
         "INSERT INTO notes (session_id, created_ms, updated_ms, text) VALUES (?1, ?2, ?2, ?3)",
         params![session_id, now_ms, text],
     )?;
-    db.query_row(&format!("SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?1"), [db.last_insert_rowid()], note_row)
+    db.query_row(
+        &format!("SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?1"),
+        [db.last_insert_rowid()],
+        note_row,
+    )
 }
 
 pub fn update_note(db: &Db, id: i64, text: &str, now_ms: i64) -> rusqlite::Result<Note> {
-    db.execute("UPDATE notes SET text = ?2, updated_ms = ?3 WHERE id = ?1", params![id, text, now_ms])?;
-    db.query_row(&format!("SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?1"), [id], note_row)
+    db.execute(
+        "UPDATE notes SET text = ?2, updated_ms = ?3 WHERE id = ?1",
+        params![id, text, now_ms],
+    )?;
+    db.query_row(
+        &format!("SELECT {NOTE_COLUMNS} FROM notes WHERE id = ?1"),
+        [id],
+        note_row,
+    )
 }
 
 pub fn delete_note(db: &Db, id: i64) -> rusqlite::Result<()> {
@@ -212,14 +233,23 @@ pub fn delete_note(db: &Db, id: i64) -> rusqlite::Result<()> {
 
 fn session_breaks(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Interval>> {
     db.prepare("SELECT start_ms, end_ms FROM breaks WHERE session_id = ?1 ORDER BY start_ms")?
-        .query_map([session_id], |row| Ok(Interval { start_ms: row.get(0)?, end_ms: row.get(1)? }))?
+        .query_map([session_id], |row| {
+            Ok(Interval {
+                start_ms: row.get(0)?,
+                end_ms: row.get(1)?,
+            })
+        })?
         .collect()
 }
 
 /// Sessions started in the filter's range whose task or notes contain the query, newest first.
 pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionRecord>> {
     let pattern = filter.query.as_deref().map(|q| {
-        let escaped = q.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let escaped = q
+            .trim()
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         format!("%{escaped}%")
     });
     let mut sessions: Vec<SessionRecord> = db
@@ -269,8 +299,10 @@ pub fn recent_summary(db: &Db, since_ms: i64) -> rusqlite::Result<Vec<String>> {
 }
 
 pub fn get_setting(db: &Db, key: &str) -> rusqlite::Result<Option<String>> {
-    db.query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| row.get(0))
-        .optional()
+    db.query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+        row.get(0)
+    })
+    .optional()
 }
 
 pub fn set_setting(db: &Db, key: &str, value: &str) -> rusqlite::Result<()> {
@@ -293,12 +325,21 @@ mod tests {
 
         let note = add_note(&db, first, "ask Ion about the 100% figure", 1_500).unwrap();
         add_note(&db, second, "token expires too early", 2_500).unwrap();
-        let edited = update_note(&db, note.id, "ask Ion about the 100% figure, again", 1_800).unwrap();
+        let edited =
+            update_note(&db, note.id, "ask Ion about the 100% figure, again", 1_800).unwrap();
         assert_eq!((edited.created_ms, edited.updated_ms), (1_500, 1_800));
 
         let search = |query: &str| {
-            let filter = HistoryFilter { from_ms: None, to_ms: None, query: Some(query.into()) };
-            history(&db, &filter).unwrap().into_iter().map(|r| (r.id, r.notes.len())).collect::<Vec<_>>()
+            let filter = HistoryFilter {
+                from_ms: None,
+                to_ms: None,
+                query: Some(query.into()),
+            };
+            history(&db, &filter)
+                .unwrap()
+                .into_iter()
+                .map(|r| (r.id, r.notes.len()))
+                .collect::<Vec<_>>()
         };
         assert_eq!(search("token"), vec![(second, 1)]);
         assert_eq!(search("100%"), vec![(first, 1)]);
