@@ -48,7 +48,18 @@ CREATE TABLE IF NOT EXISTS activities (
     end_ms INTEGER                  -- NULL only briefly, for the row being written
 );
 CREATE TABLE IF NOT EXISTS blocked_sites (
-    domain TEXT PRIMARY KEY
+    domain TEXT PRIMARY KEY,
+    allowed INTEGER NOT NULL DEFAULT 0   -- 1 = temporarily exempt from blocking
+);
+-- Why the user reduced blocking: allowing a site, or turning the always-on block off.
+CREATE TABLE IF NOT EXISTS block_reasons (
+    id INTEGER PRIMARY KEY,
+    at_ms INTEGER NOT NULL,
+    session_id INTEGER,
+    kind TEXT NOT NULL,           -- 'allow-site' or 'disable-block'
+    domain TEXT,
+    reason TEXT NOT NULL,
+    opinion TEXT                  -- Claude's opinion; NULL when not stored
 );
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -93,6 +104,12 @@ pub struct Activity {
     pub end_ms: Option<i64>,
 }
 
+#[derive(Clone, Serialize)]
+pub struct BlockedSite {
+    pub domain: String,
+    pub allowed: bool,
+}
+
 #[derive(Serialize)]
 pub struct SessionRecord {
     pub id: i64,
@@ -130,6 +147,13 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
             )?;
         }
         set_setting(&db, "block_list_seeded", "1")?;
+    }
+    // Databases from before per-site allowances existed.
+    let has_allowed = db
+        .prepare("SELECT 1 FROM pragma_table_info('blocked_sites') WHERE name = 'allowed'")?
+        .exists([])?;
+    if !has_allowed {
+        db.execute_batch("ALTER TABLE blocked_sites ADD COLUMN allowed INTEGER NOT NULL DEFAULT 0")?;
     }
     // Databases from before session objectives existed.
     let has_objectives = db
@@ -407,8 +431,21 @@ pub fn activities(db: &Db, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<Act
     .collect()
 }
 
-pub fn blocked_sites(db: &Db) -> rusqlite::Result<Vec<String>> {
-    db.prepare("SELECT domain FROM blocked_sites ORDER BY domain")?
+/// Every site with its current allowed flag, for the Blocked tab.
+pub fn blocked_site_rows(db: &Db) -> rusqlite::Result<Vec<BlockedSite>> {
+    db.prepare("SELECT domain, allowed FROM blocked_sites ORDER BY domain")?
+        .query_map([], |row| {
+            Ok(BlockedSite {
+                domain: row.get(0)?,
+                allowed: row.get::<_, i64>(1)? != 0,
+            })
+        })?
+        .collect()
+}
+
+/// Only the domains that should actually be blocked now (not temporarily allowed).
+pub fn active_block_domains(db: &Db) -> rusqlite::Result<Vec<String>> {
+    db.prepare("SELECT domain FROM blocked_sites WHERE allowed = 0 ORDER BY domain")?
         .query_map([], |row| row.get(0))?
         .collect()
 }
@@ -426,6 +463,37 @@ pub fn remove_blocked_site(db: &Db, domain: &str) -> rusqlite::Result<()> {
     Ok(())
 }
 
+pub fn set_site_allowed(db: &Db, domain: &str, allowed: bool) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE blocked_sites SET allowed = ?2 WHERE domain = ?1",
+        params![domain, allowed as i64],
+    )?;
+    Ok(())
+}
+
+/// Blocks everything again (clears all temporary allowances); run at startup.
+pub fn reset_allowances(db: &Db) -> rusqlite::Result<()> {
+    db.execute("UPDATE blocked_sites SET allowed = 0", [])?;
+    Ok(())
+}
+
+pub fn add_block_reason(
+    db: &Db,
+    at_ms: i64,
+    session_id: Option<i64>,
+    kind: &str,
+    domain: Option<&str>,
+    reason: &str,
+    opinion: Option<&str>,
+) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO block_reasons (at_ms, session_id, kind, domain, reason, opinion)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![at_ms, session_id, kind, domain, reason, opinion],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,19 +502,19 @@ mod tests {
     fn block_list_is_seeded_and_editable() {
         let db = open(Path::new(":memory:")).unwrap();
         assert_eq!(
-            blocked_sites(&db).unwrap().len(),
+            active_block_domains(&db).unwrap().len(),
             crate::blocker::DEFAULT_SITES.len()
         );
         add_blocked_site(&db, "reddit.com").unwrap();
         add_blocked_site(&db, "reddit.com").unwrap(); // idempotent
         assert!(
-            blocked_sites(&db)
+            active_block_domains(&db)
                 .unwrap()
                 .contains(&"reddit.com".to_string())
         );
         remove_blocked_site(&db, "youtube.com").unwrap();
         assert!(
-            !blocked_sites(&db)
+            !active_block_domains(&db)
                 .unwrap()
                 .contains(&"youtube.com".to_string())
         );

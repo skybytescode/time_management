@@ -80,7 +80,7 @@ fn take_session(app: &AppHandle, id: i64) -> Option<Session> {
 }
 
 fn block_list(state: &AppState) -> Vec<String> {
-    db::blocked_sites(&state.db.lock().unwrap()).unwrap_or_default()
+    db::active_block_domains(&state.db.lock().unwrap()).unwrap_or_default()
 }
 
 /// Whether the block list should stay enforced while the app runs, outside sessions.
@@ -402,19 +402,22 @@ fn activities(
 
 #[derive(Serialize)]
 struct Blocking {
-    sites: Vec<String>,
+    sites: Vec<db::BlockedSite>,
     always_block: bool,
     /// Whether the sites are blocked right now (a session is running, or always-block is on).
     active: bool,
+    /// Claude's opinion on the reason, for actions that lift a block; not persisted here.
+    opinion: Option<String>,
 }
 
 fn blocking_state(state: &AppState) -> Result<Blocking, String> {
     let running = state.session.lock().unwrap().is_some();
     let always = always_block(state);
     Ok(Blocking {
-        sites: db::blocked_sites(&state.db.lock().unwrap()).map_err(err)?,
+        sites: db::blocked_site_rows(&state.db.lock().unwrap()).map_err(err)?,
         always_block: always,
         active: running || always,
+        opinion: None,
     })
 }
 
@@ -474,24 +477,105 @@ fn remove_blocked_site(domain: String, state: State<AppState>) -> Result<Blockin
     blocking_state(&state)
 }
 
-/// Turns the always-on block on or off (independent of work sessions).
+fn current_session_id(state: &AppState) -> Option<i64> {
+    state.session.lock().unwrap().as_ref().map(|s| s.id)
+}
+
+/// Temporarily allows one blocked site (e.g. YouTube for a tutorial). The reason and Claude's
+/// opinion are stored; the site is exempt from blocking until re-blocked or the app restarts.
 #[tauri::command]
-fn set_always_block(on: bool, state: State<AppState>) -> Result<Blocking, String> {
-    db::set_setting(
-        &state.db.lock().unwrap(),
-        "always_block",
-        if on { "1" } else { "0" },
-    )
-    .map_err(err)?;
-    let result = if on {
-        apply_block(&state)
-    } else if state.session.lock().unwrap().is_none() {
-        blocker::unblock_sites()
-    } else {
-        Ok(()) // a session is still running, keep blocking
-    };
-    result?;
+async fn allow_site(domain: String, reason: String, app: AppHandle) -> Result<Blocking, String> {
+    let reason = reason.trim().to_string();
+    if reason.is_empty() {
+        return Err("write a reason first".into());
+    }
+    let domain = normalize_domain(&domain)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let opinion =
+            assistant::opinion_on_reason(&app, &format!("allow {domain} during work"), &reason).ok();
+        let session_id = current_session_id(&state);
+        {
+            let db = state.db.lock().unwrap();
+            db::add_block_reason(
+                &db,
+                now_ms(),
+                session_id,
+                "allow-site",
+                Some(&domain),
+                &reason,
+                opinion.as_deref(),
+            )
+            .map_err(err)?;
+            db::set_site_allowed(&db, &domain, true).map_err(err)?;
+        }
+        reapply_if_active(&state);
+        let mut blocking = blocking_state(&state)?;
+        blocking.opinion = opinion;
+        Ok(blocking)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Blocks an allowed site again.
+#[tauri::command]
+fn reblock_site(domain: String, state: State<AppState>) -> Result<Blocking, String> {
+    db::set_site_allowed(&state.db.lock().unwrap(), &domain, false).map_err(err)?;
+    reapply_if_active(&state);
     blocking_state(&state)
+}
+
+/// Turns the always-on block on or off. Turning it off needs a reason (stored); Claude's opinion is
+/// returned for display but not stored.
+#[tauri::command]
+async fn set_always_block(
+    on: bool,
+    reason: Option<String>,
+    app: AppHandle,
+) -> Result<Blocking, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let mut opinion = None;
+        if !on {
+            let reason = reason.unwrap_or_default().trim().to_string();
+            if reason.is_empty() {
+                return Err("write a reason first".into());
+            }
+            opinion =
+                assistant::opinion_on_reason(&app, "turn off the site block entirely", &reason).ok();
+            let session_id = current_session_id(&state);
+            db::add_block_reason(
+                &state.db.lock().unwrap(),
+                now_ms(),
+                session_id,
+                "disable-block",
+                None,
+                &reason,
+                None, // opinion not stored for disabling the block
+            )
+            .map_err(err)?;
+        }
+        db::set_setting(
+            &state.db.lock().unwrap(),
+            "always_block",
+            if on { "1" } else { "0" },
+        )
+        .map_err(err)?;
+        let result = if on {
+            apply_block(&state)
+        } else if current_session_id(&state).is_none() {
+            blocker::unblock_sites()
+        } else {
+            Ok(()) // a session is still running, keep blocking
+        };
+        result?;
+        let mut blocking = blocking_state(&state)?;
+        blocking.opinion = opinion;
+        Ok(blocking)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Async so the window stays responsive while Claude thinks.
@@ -562,13 +646,15 @@ pub fn run() {
                 activity: Mutex::new(None),
             });
 
-            // Enforce an always-on block right away, or clear a block left by an unclean exit.
+            // Start every launch fully blocked: clear temporary allowances, turn the always-on
+            // block on, and apply it so sites are blocked even before a session.
             let state = app.state::<AppState>();
-            let _ = if always_block(&state) {
-                apply_block(&state)
-            } else {
-                blocker::unblock_sites()
-            };
+            {
+                let db = state.db.lock().unwrap();
+                let _ = db::reset_allowances(&db);
+                let _ = db::set_setting(&db, "always_block", "1");
+            }
+            let _ = apply_block(&state);
 
             activity::start(app.handle().clone());
             let handle = app.handle().clone();
@@ -603,6 +689,8 @@ pub fn run() {
             get_blocking,
             add_blocked_site,
             remove_blocked_site,
+            allow_site,
+            reblock_site,
             set_always_block,
             ask_notes
         ])

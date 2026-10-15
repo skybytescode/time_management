@@ -1159,3 +1159,48 @@ textarea {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+.site-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.allowed-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.site.allowed {
+  border-color: var(--accent);
+}
+
+.reason-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--surface);
+}
+
+.reason-prompt {
+  margin: 0;
+  font-weight: 600;
+}
+
+.block-opinion {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  line-height: 1.45;
+  background-color: var(--surface);
+}
+
+.block-opinion:empty {
+  display: none;
+}

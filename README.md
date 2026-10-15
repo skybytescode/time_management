@@ -33,9 +33,14 @@ During a session, distracting sites are blocked at system level:
 starts.
 
 The **Blocked** tab lists the sites, lets you add or remove them, and has a switch to **block
-them whenever the app is running** (not just during a session). The list lives in the database;
-`src-tauri/src/blocker.rs` seeds the defaults on first run. The block is lifted when the app
-quits.
+them whenever the app is running** (not just during a session). Blocking is **on by default at every
+launch** — sites are blocked from the start, even before a session.
+
+Lifting a block always needs a reason, which is stored, and Claude gives a short opinion on it:
+**Allow** a single site (e.g. YouTube for a tutorial) during work — the reason and opinion are kept;
+or turn the whole switch **off** — the reason is kept but the opinion is only shown. Allowances reset
+on the next launch. The list lives in the database; `src-tauri/src/blocker.rs` seeds the defaults on
+first run. The block is lifted when the app quits.
 
 Blocking needs root, so install the helper once (it only adds/removes the app's own hosts
 section and browser policy files, and the sudoers rule lets the app run it without a password):

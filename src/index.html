@@ -177,6 +177,15 @@
         <span>Block these sites whenever the app is running</span>
       </label>
       <p id="block-status" class="block-status"></p>
+      <div id="reason-box" class="reason-box" hidden>
+        <p id="reason-prompt" class="reason-prompt"></p>
+        <textarea id="reason-input" rows="3" placeholder="Why do you need this? (Ctrl+Enter)"></textarea>
+        <div class="note-buttons">
+          <button id="reason-confirm" class="small" type="button">Confirm</button>
+          <button id="reason-cancel" class="link" type="button">Cancel</button>
+        </div>
+      </div>
+      <p id="block-opinion" class="block-opinion"></p>
       <form id="add-site-form" class="add-site">
         <input id="site-input" type="text" placeholder="Add a site, e.g. reddit.com" />
         <button class="small" type="submit">Add</button>

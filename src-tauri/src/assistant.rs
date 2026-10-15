@@ -646,3 +646,28 @@ pub fn ask_about_notes(
         .map(|s| s.trim().to_string())
         .ok_or("reply without text".into())
 }
+
+const COACH_PERSONA: &str = "You are Sergiu's focus coach inside his time management app. He keeps \
+distracting sites blocked during work. When he wants to lift a block he gives a reason. Reply with \
+a brief, honest opinion (one or two sentences): is the reason a genuine work need or a slippery \
+slope back to distraction, and a short nudge to stay on task. Plain text, no markdown.";
+
+/// Claude's brief opinion on a reason for reducing the site block. Used both when it is stored and
+/// when it is only shown.
+pub fn opinion_on_reason(app: &AppHandle, action: &str, reason: &str) -> Result<String, String> {
+    let prompt = format!(
+        "It is {}. Sergiu wants to {action}. His reason: \"{reason}\".\nGive your brief opinion.",
+        time_context()
+    );
+    let reply = ask(
+        app,
+        QUICK_MODEL,
+        COACH_PERSONA,
+        vec![json!({ "type": "text", "text": prompt })],
+        None,
+    )?;
+    reply
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .ok_or("reply without text".into())
+}

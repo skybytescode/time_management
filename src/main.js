@@ -810,28 +810,97 @@ listen("activity-changed", () => {
 const alwaysBlock = $("always-block");
 const blockStatus = $("block-status");
 const blockError = $("block-error");
+const blockOpinion = $("block-opinion");
 const siteInput = $("site-input");
 const siteList = $("site-list");
+const reasonBox = $("reason-box");
+const reasonInput = $("reason-input");
+
+// A reason is required before any block is lifted. `confirmFn(reason)` returns the new state.
+let reasonConfirm = null;
+function openReason(label, confirmFn) {
+  $("reason-prompt").textContent = label;
+  reasonInput.value = "";
+  blockError.textContent = "";
+  blockOpinion.textContent = "";
+  reasonBox.hidden = false;
+  reasonConfirm = confirmFn;
+  reasonInput.focus();
+}
+function closeReason() {
+  reasonBox.hidden = true;
+  reasonConfirm = null;
+}
+
+async function submitReason() {
+  const reason = reasonInput.value.trim();
+  if (!reason || !reasonConfirm) return;
+  const confirmFn = reasonConfirm;
+  $("reason-confirm").disabled = true;
+  blockOpinion.textContent = "Asking Claude…";
+  try {
+    const state = await confirmFn(reason);
+    closeReason();
+    renderBlocking(state);
+    blockOpinion.textContent = state.opinion ? `Claude: ${state.opinion}` : "";
+  } catch (e) {
+    blockError.textContent = String(e);
+    blockOpinion.textContent = "";
+  } finally {
+    $("reason-confirm").disabled = false;
+  }
+}
+
+$("reason-confirm").addEventListener("click", submitReason);
+$("reason-cancel").addEventListener("click", () => {
+  closeReason();
+  loadBlocking();
+});
+reasonInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.ctrlKey) submitReason();
+});
 
 function renderBlocking(state) {
   alwaysBlock.checked = state.always_block;
   blockStatus.textContent = state.active
     ? "Blocking is active — these sites are unreachable now."
-    : "Not blocking right now. Starts with a session, or turn on the switch above.";
+    : "Not blocking right now. Turn on the switch above, or it starts with a session.";
   blockStatus.classList.toggle("active", state.active);
   siteList.replaceChildren(
-    ...state.sites.map((domain) => {
-      const item = el("li", "site");
-      item.append(el("span", "site-name", domain));
+    ...state.sites.map((site) => {
+      const item = el("li", site.allowed ? "site allowed" : "site");
+      item.append(el("span", "site-name", site.domain));
+      const actions = el("span", "site-actions");
+      if (state.active && site.allowed) {
+        actions.append(el("span", "allowed-badge", "Allowed"));
+        const block = el("button", "link", "Block");
+        block.addEventListener("click", async () => {
+          try {
+            renderBlocking(await invoke("reblock_site", { domain: site.domain }));
+          } catch (e) {
+            blockError.textContent = String(e);
+          }
+        });
+        actions.append(block);
+      } else if (state.active) {
+        const allow = el("button", "link", "Allow");
+        allow.addEventListener("click", () =>
+          openReason(`Allow ${site.domain} — why do you need it now?`, (reason) =>
+            invoke("allow_site", { domain: site.domain, reason }),
+          ),
+        );
+        actions.append(allow);
+      }
       const remove = el("button", "link danger", "Remove");
       remove.addEventListener("click", async () => {
         try {
-          renderBlocking(await invoke("remove_blocked_site", { domain }));
+          renderBlocking(await invoke("remove_blocked_site", { domain: site.domain }));
         } catch (e) {
           blockError.textContent = String(e);
         }
       });
-      item.append(remove);
+      actions.append(remove);
+      item.append(actions);
       return item;
     }),
   );
@@ -839,6 +908,8 @@ function renderBlocking(state) {
 }
 
 async function loadBlocking() {
+  closeReason();
+  blockOpinion.textContent = "";
   try {
     renderBlocking(await invoke("get_blocking"));
   } catch (e) {
@@ -847,12 +918,20 @@ async function loadBlocking() {
 }
 
 alwaysBlock.addEventListener("change", async () => {
-  try {
-    renderBlocking(await invoke("set_always_block", { on: alwaysBlock.checked }));
-  } catch (e) {
-    blockError.textContent = String(e);
-    alwaysBlock.checked = !alwaysBlock.checked;
+  if (alwaysBlock.checked) {
+    try {
+      renderBlocking(await invoke("set_always_block", { on: true, reason: null }));
+    } catch (e) {
+      blockError.textContent = String(e);
+      alwaysBlock.checked = false;
+    }
+    return;
   }
+  // Turning the block off needs a reason; keep it checked until confirmed.
+  alwaysBlock.checked = true;
+  openReason("Turn off blocking entirely — why?", (reason) =>
+    invoke("set_always_block", { on: false, reason }),
+  );
 });
 
 $("add-site-form").addEventListener("submit", async (e) => {
