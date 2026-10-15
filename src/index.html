@@ -54,13 +54,20 @@
               <stop offset="0.45" stop-color="#d4af37" />
               <stop offset="1" stop-color="#a67c1a" />
             </linearGradient>
+            <clipPath id="faceclip"><circle cx="100" cy="100" r="96" /></clipPath>
           </defs>
           <circle class="face" cx="100" cy="100" r="96" />
+          <image class="dial-bg" x="2" y="2" width="196" height="196" clip-path="url(#faceclip)"
+                 preserveAspectRatio="xMidYMid slice" href="dial-bg.png" />
           <g id="ticks"></g>
-          <circle id="disc" class="left" cx="100" cy="100" r="80" />
+          <circle id="disc" class="left" cx="100" cy="100" r="94" />
           <path id="wedge" class="left" />
-          <line id="hand" class="hand" x1="100" y1="100" x2="100" y2="20" />
-          <circle class="hub" cx="100" cy="100" r="5" />
+          <g class="dial-cross">
+            <line x1="100" y1="70" x2="100" y2="130" />
+            <line x1="92.6" y1="76.3" x2="107.4" y2="76.3" />
+            <line x1="85.3" y1="89.2" x2="114.7" y2="89.2" />
+            <line x1="93.86" y1="114.5" x2="106.04" y2="116.6" />
+          </g>
         </svg>
 
         <p id="remaining" class="remaining">0:00</p>

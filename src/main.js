@@ -6,7 +6,7 @@ const MAX_MINUTES = 240;
 const STEP = 5;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
-const R = 80; // radius of the dial's disc, matches index.html
+const R = 94; // the gold progress fills the whole dial; matches #disc in index.html
 
 const KIND_LABELS = {
   greeting: "Hello",
@@ -29,7 +29,6 @@ const currentTask = $("current-task");
 const dial = $("dial");
 const disc = $("disc");
 const wedge = $("wedge");
-const hand = $("hand");
 const remainingText = $("remaining");
 const times = $("times");
 const status = $("status");
@@ -92,8 +91,6 @@ function drawDial(fraction) {
   disc.style.display = full ? "" : "none";
   wedge.style.display = full || fraction <= 0 ? "none" : "";
   wedge.setAttribute("d", `M100 100 L100 ${100 - R} A${R} ${R} 0 ${fraction > 0.5 ? 1 : 0} 1 ${x} ${y} Z`);
-  hand.setAttribute("x2", x);
-  hand.setAttribute("y2", y);
 }
 
 const breakMs = (s, now) => s.break_ms + (s.break_start_ms ? now - s.break_start_ms : 0);

@@ -269,28 +269,23 @@ input[type="date"] {
   stroke-width: 2;
 }
 
-.tick {
-  stroke: var(--muted);
-  stroke-width: 1;
+/* The flower-of-life dial background makes the clock dark, so ticks are hidden and the
+   hand, hub and remaining-time fill are tuned to read over it. */
+#ticks {
+  display: none;
 }
 
-.tick.major {
-  stroke: var(--fg);
-  stroke-width: 2.5;
-}
-
+/* Translucent so the sacred-geometry background shows through the remaining-time fill. */
 .left {
   fill: url(#gold);
+  fill-opacity: 0.45;
 }
 
-.hand {
-  stroke: var(--fg);
-  stroke-width: 3;
+/* Thin red Orthodox cross at the dial centre, proportioned like the app icon glyph. */
+.dial-cross line {
+  stroke: #e22b2b;
+  stroke-width: 2.2;
   stroke-linecap: round;
-}
-
-.hub {
-  fill: var(--fg);
 }
 
 .remaining {
