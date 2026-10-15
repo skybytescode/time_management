@@ -16,8 +16,8 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 
 const MAX_MINUTES: u32 = 240;
 const MINUTE_MS: i64 = 60_000;
-/// The assistant checks in once per hour of session (`TM_CHECK_IN_MINUTES` overrides it, for testing)...
-const CHECK_IN_EVERY_MS: i64 = 60 * MINUTE_MS;
+/// The assistant checks in every 20 minutes of session (`TM_CHECK_IN_MINUTES` overrides it)...
+const CHECK_IN_EVERY_MS: i64 = 20 * MINUTE_MS;
 /// ...after taking screenshots spread over the last five minutes before it.
 const CAPTURE_WINDOW_MS: i64 = 5 * MINUTE_MS;
 const SHOTS_PER_CHECK_IN: i64 = 3;
@@ -124,7 +124,8 @@ fn watch_session(app: AppHandle, id: i64) {
     let mut shots = Vec::new();
     let mut shots_due = 0;
     let mut last_heartbeat = 0;
-    let mut reminded_break = None;
+    // (break start, number of 5-minute reminders already spoken for it).
+    let mut break_reminders: Option<(i64, i64)> = None;
 
     // Poll the wall clock instead of sleeping long, so time spent suspended counts.
     loop {
@@ -150,13 +151,21 @@ fn watch_session(app: AppHandle, id: i64) {
             return;
         }
 
-        if let Some(start) = session.break_start_ms
-            && now - start >= BREAK_MS
-            && reminded_break != Some(start)
-        {
-            reminded_break = Some(start);
-            let (app, session) = (app.clone(), session.clone());
-            thread::spawn(move || assistant::break_over(&app, &session));
+        // Nudge back to work at every 5-minute mark of a break (5, 10, 15, ...).
+        if let Some(start) = session.break_start_ms {
+            let due = (now - start) / BREAK_MS;
+            let spoken = match break_reminders {
+                Some((s, count)) if s == start => count,
+                _ => 0,
+            };
+            if due > spoken {
+                break_reminders = Some((start, due));
+                let minutes = (due * BREAK_MS / MINUTE_MS) as u32;
+                let (app, session) = (app.clone(), session.clone());
+                thread::spawn(move || assistant::break_reminder(&app, &session, minutes, due == 1));
+            }
+        } else {
+            break_reminders = None;
         }
 
         // Screenshots at 55, 57:30 and 60 minutes into each hour, then the check-in.

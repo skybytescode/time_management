@@ -364,15 +364,40 @@ pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: 
     deliver(app, Some(session.id), "finished", text, None);
 }
 
-/// Spoken once a break has lasted five minutes; no Claude needed.
-pub fn break_over(app: &AppHandle, session: &Session) {
-    let text = pick(&[
-        "Five minutes are up. Ready to get back to it?",
-        "That's your five minute break. Back to work when you're ready.",
-        "Break time's over, Sergiu. Let's pick it up again.",
-        "Hope that was refreshing. Shall we continue?",
-    ]);
-    deliver(app, Some(session.id), "break-over", text.into(), None);
+/// Spoken at each 5-minute mark of a break (`first` is the 5-minute one), to nudge back to work.
+/// No Claude needed, so it's instant and free.
+pub fn break_reminder(app: &AppHandle, session: &Session, minutes: u32, first: bool) {
+    let text = if first {
+        pick(&[
+            "Five minutes are up. Ready to get back to it?",
+            "That's your five minute break. Back to work when you're ready.",
+            "Break time's over, Sergiu. Let's pick it up again.",
+            "Hope that was refreshing. Shall we continue?",
+        ])
+        .to_string()
+    } else {
+        // Pick an opener and an encouragement, varied from one reminder to the next.
+        let openers = [
+            format!("That's {minutes} minutes on your break now, Sergiu."),
+            format!("You've been away for {minutes} minutes."),
+            format!("Your break is at {minutes} minutes."),
+            format!("{minutes} minutes of break so far."),
+        ];
+        let pushes = [
+            "Let's head back and pick up where you left off.",
+            "Time to get back to it while you're still fresh.",
+            "Your task is waiting — shall we keep the momentum going?",
+            "A good moment to return and make some progress.",
+            "Come on, one more focused stretch and you'll feel great.",
+        ];
+        let seed = (now_ms() / 1000) as usize;
+        format!(
+            "{} {}",
+            openers[seed % openers.len()],
+            pushes[seed % pushes.len()]
+        )
+    };
+    deliver(app, Some(session.id), "break-over", text, None);
 }
 
 /// Screenshot of the active window, scaled down and JPEG-encoded in base64. Nothing stays on disk.
@@ -414,7 +439,7 @@ pub fn capture_screen(app: &AppHandle) -> Result<String, String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(jpeg))
 }
 
-/// The hourly check-in: Claude looks at the screenshots and gives advice, motivation or a break.
+/// The check-in: Claude looks at the screenshots and gives advice, motivation or a break.
 pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
     let now = now_ms();
     let elapsed = (now - session.start_ms) / 60_000;
@@ -438,7 +463,7 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
         )
     };
     let prompt = format!(
-        "Hourly check-in. It is {}. Sergiu's task: \"{}\".\n\
+        "Check-in. It is {}. Sergiu's task: \"{}\".\n\
          {}The session has run {elapsed} minutes, {since_break} minutes since the last break \
          ({} breaks so far). The images are the active window over the last few minutes.\n\
          What you said earlier this session:\n{}\n\
