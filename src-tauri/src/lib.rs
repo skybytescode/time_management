@@ -1,3 +1,4 @@
+mod activity;
 mod assistant;
 mod blocker;
 mod db;
@@ -50,6 +51,8 @@ impl Session {
 pub struct AppState {
     session: Mutex<Option<Session>>,
     db: Mutex<db::Db>,
+    /// The application currently in the foreground, as seen by the activity tracker.
+    activity: Mutex<Option<activity::CurrentActivity>>,
 }
 
 fn now_ms() -> i64 {
@@ -337,6 +340,31 @@ fn delete_note(id: i64, state: State<AppState>) -> Result<(), String> {
     db::delete_note(&state.db.lock().unwrap(), id).map_err(err)
 }
 
+/// Focus intervals that overlap [from_ms, to_ms), plus the live current activity clipped to it.
+#[tauri::command]
+fn activities(
+    from_ms: i64,
+    to_ms: i64,
+    state: State<AppState>,
+) -> Result<Vec<db::Activity>, String> {
+    let mut rows = db::activities(&state.db.lock().unwrap(), from_ms, to_ms).map_err(err)?;
+    if let Some(current) = state.activity.lock().unwrap().clone() {
+        let now = now_ms();
+        if current.start_ms < to_ms && now > from_ms {
+            rows.insert(
+                0,
+                db::Activity {
+                    app: current.app,
+                    title: current.title,
+                    start_ms: current.start_ms.max(from_ms),
+                    end_ms: Some(now.min(to_ms)),
+                },
+            );
+        }
+    }
+    Ok(rows)
+}
+
 /// Async so the window stays responsive while Claude thinks.
 #[tauri::command]
 async fn ask_notes(
@@ -362,11 +390,13 @@ pub fn run() {
             app.manage(AppState {
                 session: Mutex::new(None),
                 db: Mutex::new(db),
+                activity: Mutex::new(None),
             });
 
             // Leftover block from a session that didn't end cleanly (crash, power loss).
             let _ = blocker::unblock_sites();
 
+            activity::start(app.handle().clone());
             let handle = app.handle().clone();
             thread::spawn(move || assistant::greet(&handle));
             Ok(())
@@ -383,12 +413,14 @@ pub fn run() {
             add_note,
             update_note,
             delete_note,
+            activities,
             ask_notes
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                activity::stop();
                 let session = app.state::<AppState>().session.lock().unwrap().take();
                 match session {
                     Some(session) => end_session(app, &session, now_ms()),

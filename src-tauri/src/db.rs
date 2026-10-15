@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS notes (
     updated_ms INTEGER NOT NULL,
     text TEXT NOT NULL
 );
+-- One row per interval an application was the focused window.
+CREATE TABLE IF NOT EXISTS activities (
+    id INTEGER PRIMARY KEY,
+    app TEXT NOT NULL,              -- window class, e.g. code or org.kde.konsole
+    title TEXT NOT NULL,
+    start_ms INTEGER NOT NULL,
+    end_ms INTEGER                  -- NULL only briefly, for the row being written
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -47,6 +55,7 @@ CREATE INDEX IF NOT EXISTS sessions_start ON sessions(start_ms);
 CREATE INDEX IF NOT EXISTS breaks_session ON breaks(session_id);
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS notes_session ON notes(session_id);
+CREATE INDEX IF NOT EXISTS activities_start ON activities(start_ms);
 ";
 
 #[derive(Clone, Serialize)]
@@ -71,6 +80,14 @@ pub struct Note {
     pub created_ms: i64,
     pub updated_ms: i64,
     pub text: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct Activity {
+    pub app: String,
+    pub title: String,
+    pub start_ms: i64,
+    pub end_ms: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -338,6 +355,39 @@ pub fn set_setting(db: &Db, key: &str, value: &str) -> rusqlite::Result<()> {
         params![key, value],
     )?;
     Ok(())
+}
+
+pub fn add_activity(
+    db: &Db,
+    app: &str,
+    title: &str,
+    start_ms: i64,
+    end_ms: i64,
+) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT INTO activities (app, title, start_ms, end_ms) VALUES (?1, ?2, ?3, ?4)",
+        params![app, title, start_ms, end_ms],
+    )?;
+    Ok(())
+}
+
+/// Focus intervals that overlap [from_ms, to_ms), clipped to it, newest first.
+pub fn activities(db: &Db, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<Activity>> {
+    db.prepare(
+        "SELECT app, title, MAX(start_ms, ?1), MIN(COALESCE(end_ms, ?2), ?2)
+         FROM activities
+         WHERE start_ms < ?2 AND COALESCE(end_ms, ?2) > ?1
+         ORDER BY start_ms DESC",
+    )?
+    .query_map(params![from_ms, to_ms], |row| {
+        Ok(Activity {
+            app: row.get(0)?,
+            title: row.get(1)?,
+            start_ms: row.get(2)?,
+            end_ms: Some(row.get(3)?),
+        })
+    })?
+    .collect()
 }
 
 #[cfg(test)]

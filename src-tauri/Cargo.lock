@@ -3832,6 +3832,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "zbus",
 ]
 
 [[package]]

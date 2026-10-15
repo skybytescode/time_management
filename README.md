@@ -61,6 +61,16 @@ sh scripts/install-voice.sh
 
 Set `TM_CHECK_IN_MINUTES=2` to try the check-ins without waiting an hour.
 
+## Activity tracking
+
+The **Activity** tab records which application is in the foreground and for how long. On KDE
+Plasma (Wayland) the app loads a small KWin script (`src-tauri/kwin/activity.js`) that reports the
+active window to the app over a private D-Bus service, so window titles stay in the local database
+and never reach the system journal. Only focus intervals are stored (a few hundred rows a day, well
+under a megabyte a year); nothing you type is captured. Time while the screen is locked isn't
+counted. The tab shows, per day, total time per application and a timeline of intervals with window
+titles. On other desktops the tracker simply does nothing and the rest of the app is unaffected.
+
 ## History
 
 Sessions, breaks and everything the assistant said are stored in SQLite at

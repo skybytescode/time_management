@@ -469,6 +469,7 @@ function showView(view) {
     $(tab.dataset.view).hidden = tab.dataset.view !== view;
   }
   if (view === "history-view") refreshHistory();
+  if (view === "activity-view") loadActivity();
   if (view === "ask-view") question.focus();
 }
 
@@ -674,6 +675,98 @@ async function loadCalendar() {
   }
   $("calendar-body").replaceChildren(...rows);
 }
+
+// ---- Activity ----
+
+let activityDay = new Date().setHours(0, 0, 0, 0);
+
+function prettyApp(app) {
+  if (!app) return "Unknown";
+  const base = app.includes(".") ? app.slice(app.lastIndexOf(".") + 1) : app;
+  return base
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+$("act-prev").addEventListener("click", () => {
+  activityDay -= DAY_MS;
+  loadActivity();
+});
+$("act-next").addEventListener("click", () => {
+  if (activityDay + DAY_MS <= new Date().setHours(0, 0, 0, 0)) {
+    activityDay += DAY_MS;
+    loadActivity();
+  }
+});
+
+const viewingToday = () => activityDay === new Date().setHours(0, 0, 0, 0);
+
+async function loadActivity() {
+  const isToday = viewingToday();
+  $("act-label").textContent = isToday
+    ? "Today"
+    : new Date(activityDay).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  $("act-next").disabled = isToday;
+  let rows;
+  try {
+    rows = await invoke("activities", { fromMs: activityDay, toMs: activityDay + DAY_MS });
+  } catch (e) {
+    $("act-total").textContent = String(e);
+    return;
+  }
+
+  const now = Date.now();
+  const current = rows.find((r) => isToday && (r.end_ms ?? now) >= now - 2000);
+  $("act-current").textContent = current ? `Now: ${prettyApp(current.app)} — ${current.title}` : "";
+  $("act-current").hidden = !current;
+
+  // Total time per app, most used first.
+  const perApp = new Map();
+  let total = 0;
+  for (const r of rows) {
+    const ms = (r.end_ms ?? now) - r.start_ms;
+    total += ms;
+    perApp.set(r.app, (perApp.get(r.app) ?? 0) + ms);
+  }
+  const apps = [...perApp.entries()].sort((a, b) => b[1] - a[1]);
+  $("act-total").textContent = rows.length ? `${hoursMinutes(total)} tracked` : "Nothing tracked.";
+  const max = apps.length ? apps[0][1] : 1;
+  $("act-apps").replaceChildren(
+    ...apps.map(([app, ms]) => {
+      const item = el("li", "act-app");
+      item.append(el("span", "act-app-name", prettyApp(app)));
+      const bar = el("div", "act-bar");
+      const fill = el("div", "act-bar-fill");
+      fill.style.width = `${(100 * ms) / max}%`;
+      bar.append(fill);
+      item.append(bar, el("span", "act-app-time", hoursMinutes(ms)));
+      return item;
+    }),
+  );
+
+  // Interval list, newest first (rows already arrive that way).
+  $("act-timeline").replaceChildren(
+    ...rows.map((r) => {
+      const item = el("li", "act-interval");
+      const end = r.end_ms ?? now;
+      item.append(
+        el("span", "act-when", `${clockTime(r.start_ms)}–${r.end_ms ? clockTime(r.end_ms) : "now"}`),
+        el("span", "act-dur", hoursMinutes(end - r.start_ms)),
+        el("span", "act-app-name", prettyApp(r.app)),
+        el("span", "act-title", r.title),
+      );
+      return item;
+    }),
+  );
+}
+
+let activityRefresh;
+listen("activity-changed", () => {
+  if ($("activity-view").hidden || !viewingToday()) return;
+  // Coalesce bursts of focus changes.
+  clearTimeout(activityRefresh);
+  activityRefresh = setTimeout(loadActivity, 500);
+});
 
 // ---- Ask ----
 
