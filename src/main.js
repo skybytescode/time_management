@@ -152,9 +152,11 @@ async function loadToday() {
 function updateToday(now) {
   const worked = todayRecords.reduce((sum, r) => sum + recordWorkedMs(r, now), 0);
   const breaks = todayRecords.reduce((sum, r) => sum + recordBreakMs(r, now), 0);
+  $("today-total").textContent = hoursMinutes(worked + breaks);
   $("today-worked").textContent = hoursMinutes(worked);
   $("today-breaks").textContent = hoursMinutes(breaks);
-  for (const [r, workedField, breaksField] of todayFields) {
+  for (const [r, totalField, workedField, breaksField] of todayFields) {
+    totalField.textContent = `Total ${hoursMinutes((r.end_ms ?? now) - r.start_ms)}`;
     workedField.textContent = `Worked ${hoursMinutes(recordWorkedMs(r, now))}`;
     breaksField.textContent = `Breaks ${hoursMinutes(recordBreakMs(r, now))} (${r.breaks.length})`;
   }
@@ -169,10 +171,11 @@ function renderToday() {
     head.append(el("span", "when", `${clockTime(r.start_ms)}–${r.end_ms ? clockTime(r.end_ms) : "now"}`));
     item.append(head, el("p", "today-title", r.task));
     const totals = el("div", "today-totals");
+    const totalField = el("span");
     const workedField = el("span");
     const breaksField = el("span");
-    totals.append(workedField, breaksField);
-    todayFields.push([r, workedField, breaksField]);
+    totals.append(totalField, workedField, breaksField);
+    todayFields.push([r, totalField, workedField, breaksField]);
     item.append(totals);
     if (r.objectives) item.title = r.objectives;
     return item;

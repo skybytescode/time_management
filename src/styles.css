@@ -769,8 +769,8 @@ textarea {
 
 .today-totals {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
