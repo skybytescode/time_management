@@ -539,9 +539,35 @@ async function loadHistory() {
   sessionsList.replaceChildren(...records.map((r) => sessionItem(r, worked(r), now)));
 }
 
+// A small two-slice pie of work (gold) vs break (grey) time.
+function timePie(workMs, breakMs) {
+  const total = workMs + breakMs;
+  const pie = el("div", "record-pie");
+  if (total <= 0) return pie;
+  const pt = (frac) => {
+    const a = frac * 2 * Math.PI;
+    return [22 + 20 * Math.sin(a), 22 - 20 * Math.cos(a)];
+  };
+  let slices;
+  if (breakMs <= 0) {
+    slices = `<circle cx="22" cy="22" r="20" class="pie-work" />`;
+  } else if (workMs <= 0) {
+    slices = `<circle cx="22" cy="22" r="20" class="pie-break" />`;
+  } else {
+    const bf = breakMs / total;
+    const [bx, by] = pt(bf);
+    slices =
+      `<circle cx="22" cy="22" r="20" class="pie-work" />` +
+      `<path d="M22 22 L22 2 A20 20 0 ${bf > 0.5 ? 1 : 0} 1 ${bx.toFixed(2)} ${by.toFixed(2)} Z" class="pie-break" />`;
+  }
+  pie.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">${slices}</svg>`;
+  return pie;
+}
+
 function sessionItem(record, worked, now) {
   const end = record.end_ms ?? now;
   const item = el("li", "record");
+  const main = el("div", "record-main");
 
   const head = el("div", "record-head");
   const day = new Date(record.start_ms).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
@@ -555,8 +581,8 @@ function sessionItem(record, worked, now) {
   const ask = el("button", "link", "Ask Claude");
   ask.addEventListener("click", () => askAbout(record));
   taskRow.append(el("p", "record-task", record.task), ask);
-  item.append(head, taskRow);
-  if (record.objectives) item.append(el("p", "record-objectives", record.objectives));
+  main.append(head, taskRow);
+  if (record.objectives) main.append(el("p", "record-objectives", record.objectives));
 
   // Work in gold, breaks in grey, and a dot for each thing the assistant said.
   const timeline = el("div", "timeline");
@@ -574,7 +600,7 @@ function sessionItem(record, worked, now) {
     dot.title = `${clockTime(m.at_ms)} ${KIND_LABELS[m.kind] ?? m.kind}: ${m.text}`;
     timeline.append(dot);
   }
-  item.append(timeline);
+  main.append(timeline);
 
   const details = el("details");
   const heading = el("summary");
@@ -586,7 +612,12 @@ function sessionItem(record, worked, now) {
     list.append(...record.messages.map(messageItem));
     details.append(list);
   }
-  item.append(details);
+  main.append(details);
+
+  const breakTotal = recordBreakMs(record, now);
+  const pie = timePie(worked, breakTotal);
+  pie.title = `${hoursMinutes(total)} total · ${hoursMinutes(worked)} work · ${hoursMinutes(breakTotal)} break`;
+  item.append(main, pie);
   return item;
 }
 
