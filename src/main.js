@@ -121,6 +121,7 @@ function tick() {
     if (session.break_start_ms) parts.push(`On break ${duration(now - session.break_start_ms)}`);
     times.textContent = parts.join(" · ");
     const breaks = session.breaks + (session.break_start_ms ? 1 : 0);
+    $("session-total").textContent = hoursMinutes(now - session.start_ms);
     $("session-worked").textContent = hoursMinutes(now - session.start_ms - breakMs(session, now));
     $("session-breaks").textContent = `${hoursMinutes(breakMs(session, now))} (${breaks})`;
   }
