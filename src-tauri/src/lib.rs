@@ -10,7 +10,9 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 
 const MAX_MINUTES: u32 = 240;
 const MINUTE_MS: i64 = 60_000;
@@ -379,6 +381,46 @@ async fn ask_notes(
     .map_err(|e| e.to_string())?
 }
 
+/// Brings the main window back from the tray.
+fn show_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// A tray icon so the app keeps running after the window is closed.
+fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let mut builder = TrayIconBuilder::new()
+        .tooltip("Time Management")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -399,6 +441,18 @@ pub fn run() {
             activity::start(app.handle().clone());
             let handle = app.handle().clone();
             thread::spawn(move || assistant::greet(&handle));
+
+            setup_tray(app.handle())?;
+            // Closing the window hides it to the tray instead of quitting; use the tray to quit.
+            if let Some(window) = app.get_webview_window("main") {
+                let hidden = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = hidden.hide();
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
