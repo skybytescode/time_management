@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS activities (
     start_ms INTEGER NOT NULL,
     end_ms INTEGER                  -- NULL only briefly, for the row being written
 );
+CREATE TABLE IF NOT EXISTS blocked_sites (
+    domain TEXT PRIMARY KEY
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -114,6 +117,20 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
     let db = Connection::open(path)?;
     db.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
     db.execute_batch(SCHEMA)?;
+    // Seed the block list on a fresh database; after that the user owns it, empty included.
+    if db.query_row("SELECT COUNT(*) FROM blocked_sites", [], |r| {
+        r.get::<_, i64>(0)
+    })? == 0
+        && get_setting(&db, "block_list_seeded")?.is_none()
+    {
+        for site in crate::blocker::DEFAULT_SITES {
+            db.execute(
+                "INSERT OR IGNORE INTO blocked_sites (domain) VALUES (?1)",
+                [site],
+            )?;
+        }
+        set_setting(&db, "block_list_seeded", "1")?;
+    }
     // Databases from before session objectives existed.
     let has_objectives = db
         .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'objectives'")?
@@ -390,9 +407,50 @@ pub fn activities(db: &Db, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<Act
     .collect()
 }
 
+pub fn blocked_sites(db: &Db) -> rusqlite::Result<Vec<String>> {
+    db.prepare("SELECT domain FROM blocked_sites ORDER BY domain")?
+        .query_map([], |row| row.get(0))?
+        .collect()
+}
+
+pub fn add_blocked_site(db: &Db, domain: &str) -> rusqlite::Result<()> {
+    db.execute(
+        "INSERT OR IGNORE INTO blocked_sites (domain) VALUES (?1)",
+        [domain],
+    )?;
+    Ok(())
+}
+
+pub fn remove_blocked_site(db: &Db, domain: &str) -> rusqlite::Result<()> {
+    db.execute("DELETE FROM blocked_sites WHERE domain = ?1", [domain])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_list_is_seeded_and_editable() {
+        let db = open(Path::new(":memory:")).unwrap();
+        assert_eq!(
+            blocked_sites(&db).unwrap().len(),
+            crate::blocker::DEFAULT_SITES.len()
+        );
+        add_blocked_site(&db, "reddit.com").unwrap();
+        add_blocked_site(&db, "reddit.com").unwrap(); // idempotent
+        assert!(
+            blocked_sites(&db)
+                .unwrap()
+                .contains(&"reddit.com".to_string())
+        );
+        remove_blocked_site(&db, "youtube.com").unwrap();
+        assert!(
+            !blocked_sites(&db)
+                .unwrap()
+                .contains(&"youtube.com".to_string())
+        );
+    }
 
     #[test]
     fn notes_belong_to_their_session_and_are_searchable() {

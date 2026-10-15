@@ -79,13 +79,37 @@ fn take_session(app: &AppHandle, id: i64) -> Option<Session> {
     }
 }
 
+fn block_list(state: &AppState) -> Vec<String> {
+    db::blocked_sites(&state.db.lock().unwrap()).unwrap_or_default()
+}
+
+/// Whether the block list should stay enforced while the app runs, outside sessions.
+fn always_block(state: &AppState) -> bool {
+    db::get_setting(&state.db.lock().unwrap(), "always_block")
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("1")
+}
+
+/// Applies the current block list, or lifts it when the list is empty.
+fn apply_block(state: &AppState) -> Result<(), String> {
+    blocker::block_sites(&block_list(state))
+}
+
 fn end_session(app: &AppHandle, session: &Session, end_ms: i64) {
     let state = app.state::<AppState>();
     if let Err(e) = db::end_session(&state.db.lock().unwrap(), session.id, end_ms) {
         eprintln!("could not save session end: {e}");
     }
-    if let Err(e) = blocker::unblock_sites() {
-        eprintln!("could not unblock sites: {e}");
+    // Keep sites blocked after the session if the user asked for an always-on block.
+    let result = if always_block(&state) {
+        apply_block(&state)
+    } else {
+        blocker::unblock_sites()
+    };
+    if let Err(e) = result {
+        eprintln!("could not update site block: {e}");
     }
 }
 
@@ -218,7 +242,7 @@ fn start_session(
         objectives,
         start_ms,
         end_ms: minutes.map(|m| start_ms + i64::from(m) * MINUTE_MS),
-        block_error: blocker::block_sites().err(),
+        block_error: apply_block(&state).err(),
         break_start_ms: None,
         last_break_end_ms: None,
         breaks: 0,
@@ -367,6 +391,100 @@ fn activities(
     Ok(rows)
 }
 
+#[derive(Serialize)]
+struct Blocking {
+    sites: Vec<String>,
+    always_block: bool,
+    /// Whether the sites are blocked right now (a session is running, or always-block is on).
+    active: bool,
+}
+
+fn blocking_state(state: &AppState) -> Result<Blocking, String> {
+    let running = state.session.lock().unwrap().is_some();
+    let always = always_block(state);
+    Ok(Blocking {
+        sites: db::blocked_sites(&state.db.lock().unwrap()).map_err(err)?,
+        always_block: always,
+        active: running || always,
+    })
+}
+
+/// Cleans up a domain typed or pasted by the user, or explains why it's not valid.
+fn normalize_domain(input: &str) -> Result<String, String> {
+    let mut domain = input.trim().to_lowercase();
+    if let Some((_, rest)) = domain.split_once("://") {
+        domain = rest.to_string();
+    }
+    domain = domain
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .to_string();
+    domain = domain.strip_prefix("www.").unwrap_or(&domain).to_string();
+    let valid = domain.contains('.')
+        && !domain.starts_with(['.', '-'])
+        && !domain.ends_with(['.', '-'])
+        && !domain.contains("..")
+        && domain
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-');
+    if valid {
+        Ok(domain)
+    } else {
+        Err(format!("not a valid site: {input}"))
+    }
+}
+
+/// Re-applies the block after an edit, so changes take effect at once while blocking is on.
+fn reapply_if_active(state: &AppState) {
+    let running = state.session.lock().unwrap().is_some();
+    if (running || always_block(state))
+        && let Err(e) = apply_block(state)
+    {
+        eprintln!("could not update site block: {e}");
+    }
+}
+
+#[tauri::command]
+fn get_blocking(state: State<AppState>) -> Result<Blocking, String> {
+    blocking_state(&state)
+}
+
+#[tauri::command]
+fn add_blocked_site(domain: String, state: State<AppState>) -> Result<Blocking, String> {
+    let domain = normalize_domain(&domain)?;
+    db::add_blocked_site(&state.db.lock().unwrap(), &domain).map_err(err)?;
+    reapply_if_active(&state);
+    blocking_state(&state)
+}
+
+#[tauri::command]
+fn remove_blocked_site(domain: String, state: State<AppState>) -> Result<Blocking, String> {
+    db::remove_blocked_site(&state.db.lock().unwrap(), &domain).map_err(err)?;
+    reapply_if_active(&state);
+    blocking_state(&state)
+}
+
+/// Turns the always-on block on or off (independent of work sessions).
+#[tauri::command]
+fn set_always_block(on: bool, state: State<AppState>) -> Result<Blocking, String> {
+    db::set_setting(
+        &state.db.lock().unwrap(),
+        "always_block",
+        if on { "1" } else { "0" },
+    )
+    .map_err(err)?;
+    let result = if on {
+        apply_block(&state)
+    } else if state.session.lock().unwrap().is_none() {
+        blocker::unblock_sites()
+    } else {
+        Ok(()) // a session is still running, keep blocking
+    };
+    result?;
+    blocking_state(&state)
+}
+
 /// Async so the window stays responsive while Claude thinks.
 #[tauri::command]
 async fn ask_notes(
@@ -435,8 +553,13 @@ pub fn run() {
                 activity: Mutex::new(None),
             });
 
-            // Leftover block from a session that didn't end cleanly (crash, power loss).
-            let _ = blocker::unblock_sites();
+            // Enforce an always-on block right away, or clear a block left by an unclean exit.
+            let state = app.state::<AppState>();
+            let _ = if always_block(&state) {
+                apply_block(&state)
+            } else {
+                blocker::unblock_sites()
+            };
 
             activity::start(app.handle().clone());
             let handle = app.handle().clone();
@@ -468,6 +591,10 @@ pub fn run() {
             update_note,
             delete_note,
             activities,
+            get_blocking,
+            add_blocked_site,
+            remove_blocked_site,
+            set_always_block,
             ask_notes
         ])
         .build(tauri::generate_context!())

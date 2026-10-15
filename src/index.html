@@ -13,6 +13,7 @@
       <button class="tab active" type="button" data-view="session-view">Session</button>
       <button class="tab" type="button" data-view="history-view">History</button>
       <button class="tab" type="button" data-view="activity-view">Activity</button>
+      <button class="tab" type="button" data-view="blocked-view">Blocked</button>
       <button class="tab" type="button" data-view="ask-view">Ask</button>
     </nav>
 
@@ -159,6 +160,20 @@
       <ul id="act-apps" class="act-apps"></ul>
       <h4 class="act-heading">Timeline</h4>
       <ul id="act-timeline" class="act-timeline"></ul>
+    </main>
+
+    <main id="blocked-view" class="view blocked-view" hidden>
+      <label class="always-row">
+        <input id="always-block" type="checkbox" />
+        <span>Block these sites whenever the app is running</span>
+      </label>
+      <p id="block-status" class="block-status"></p>
+      <form id="add-site-form" class="add-site">
+        <input id="site-input" type="text" placeholder="Add a site, e.g. reddit.com" />
+        <button class="small" type="submit">Add</button>
+      </form>
+      <p id="block-error" class="note-error"></p>
+      <ul id="site-list" class="site-list"></ul>
     </main>
 
     <main id="ask-view" class="view ask-view" hidden>

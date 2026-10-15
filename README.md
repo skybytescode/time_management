@@ -29,7 +29,12 @@ assistant calls you back after five minutes, and sites stay blocked during break
 During a session, distracting sites are blocked at system level:
 `/etc/hosts`, a Chrome/Chromium `URLBlocklist` policy and a Firefox `WebsiteFilter` policy
 (Firefox reads it at startup), and existing connections to the sites are cut when the session
-starts. The list lives in `BLOCKED_SITES` in `src-tauri/src/blocker.rs`.
+starts.
+
+The **Blocked** tab lists the sites, lets you add or remove them, and has a switch to **block
+them whenever the app is running** (not just during a session). The list lives in the database;
+`src-tauri/src/blocker.rs` seeds the defaults on first run. The block is lifted when the app
+quits.
 
 Blocking needs root, so install the helper once (it only adds/removes the app's own hosts
 section and browser policy files, and the sudoers rule lets the app run it without a password):

@@ -2,8 +2,9 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// Sites blocked during a work session; `www.` and `m.` variants are added automatically.
-const BLOCKED_SITES: &[&str] = &[
+/// The list a fresh database starts with; after that it lives in the `blocked_sites` table and the
+/// user edits it. `www.` and `m.` variants are added automatically when blocking.
+pub const DEFAULT_SITES: &[&str] = &[
     "youtube.com",
     "chess.com",
     "lichess.org",
@@ -38,9 +39,13 @@ fn run_blocker(args: &[String]) -> Result<(), String> {
     }
 }
 
-pub fn block_sites() -> Result<(), String> {
+/// Blocks exactly `domains` (plus their `www.` and `m.` variants), replacing any current block.
+pub fn block_sites(domains: &[String]) -> Result<(), String> {
+    if domains.is_empty() {
+        return unblock_sites();
+    }
     let mut args = vec!["block".to_string()];
-    for site in BLOCKED_SITES {
+    for site in domains {
         for prefix in ["", "www.", "m."] {
             args.push(format!("{prefix}{site}"));
         }

@@ -1023,3 +1023,67 @@ textarea {
   white-space: nowrap;
   color: var(--muted);
 }
+
+.blocked-view {
+  max-width: 560px;
+}
+
+.always-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  background-color: var(--surface);
+}
+
+.always-row input {
+  width: 18px;
+  height: 18px;
+}
+
+.block-status {
+  margin: 12px 0;
+  color: var(--muted);
+}
+
+.block-status.active {
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.add-site {
+  display: flex;
+  gap: 10px;
+}
+
+.add-site input {
+  flex: 1;
+}
+
+.site-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--surface);
+}
+
+.site-name {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

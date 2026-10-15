@@ -432,6 +432,7 @@ toggle.addEventListener("click", async () => {
     toggle.disabled = false;
     render();
     loadToday();
+    if (!$("blocked-view").hidden) loadBlocking();
   }
 });
 
@@ -470,6 +471,7 @@ function showView(view) {
   }
   if (view === "history-view") refreshHistory();
   if (view === "activity-view") loadActivity();
+  if (view === "blocked-view") loadBlocking();
   if (view === "ask-view") question.focus();
 }
 
@@ -766,6 +768,69 @@ listen("activity-changed", () => {
   // Coalesce bursts of focus changes.
   clearTimeout(activityRefresh);
   activityRefresh = setTimeout(loadActivity, 500);
+});
+
+// ---- Blocked sites ----
+
+const alwaysBlock = $("always-block");
+const blockStatus = $("block-status");
+const blockError = $("block-error");
+const siteInput = $("site-input");
+const siteList = $("site-list");
+
+function renderBlocking(state) {
+  alwaysBlock.checked = state.always_block;
+  blockStatus.textContent = state.active
+    ? "Blocking is active — these sites are unreachable now."
+    : "Not blocking right now. Starts with a session, or turn on the switch above.";
+  blockStatus.classList.toggle("active", state.active);
+  siteList.replaceChildren(
+    ...state.sites.map((domain) => {
+      const item = el("li", "site");
+      item.append(el("span", "site-name", domain));
+      const remove = el("button", "link danger", "Remove");
+      remove.addEventListener("click", async () => {
+        try {
+          renderBlocking(await invoke("remove_blocked_site", { domain }));
+        } catch (e) {
+          blockError.textContent = String(e);
+        }
+      });
+      item.append(remove);
+      return item;
+    }),
+  );
+  if (!state.sites.length) siteList.append(el("li", "chat-hint", "No sites in the block list."));
+}
+
+async function loadBlocking() {
+  try {
+    renderBlocking(await invoke("get_blocking"));
+  } catch (e) {
+    blockStatus.textContent = String(e);
+  }
+}
+
+alwaysBlock.addEventListener("change", async () => {
+  try {
+    renderBlocking(await invoke("set_always_block", { on: alwaysBlock.checked }));
+  } catch (e) {
+    blockError.textContent = String(e);
+    alwaysBlock.checked = !alwaysBlock.checked;
+  }
+});
+
+$("add-site-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const domain = siteInput.value.trim();
+  if (!domain) return;
+  try {
+    renderBlocking(await invoke("add_blocked_site", { domain }));
+    siteInput.value = "";
+    blockError.textContent = "";
+  } catch (e) {
+    blockError.textContent = String(e);
+  }
 });
 
 // ---- Ask ----
