@@ -174,7 +174,7 @@ function renderToday() {
     const totalField = el("span");
     const workedField = el("span");
     const breaksField = el("span");
-    totals.append(totalField, workedField, breaksField);
+    totals.append(workedField, breaksField, totalField);
     todayFields.push([r, totalField, workedField, breaksField]);
     item.append(totals);
     if (r.objectives) item.title = r.objectives;
@@ -577,8 +577,9 @@ function sessionItem(record, worked, now) {
   const span = `${day} · ${clockTime(record.start_ms)}–${record.end_ms ? clockTime(record.end_ms) : "now"}`;
   const plan = record.planned_minutes ? ` of ${record.planned_minutes}m` : "";
   const total = end - record.start_ms;
-  const bits = [`${hoursMinutes(total)} total${plan}`, `${hoursMinutes(worked)} work`];
+  const bits = [`${hoursMinutes(worked)} work`];
   if (record.breaks.length) bits.push(`${hoursMinutes(recordBreakMs(record, now))} break`);
+  bits.push(`${hoursMinutes(total)} total${plan}`);
   head.append(el("span", "when", span), el("span", "worked", bits.join(" · ")));
   const taskRow = el("div", "record-task-row");
   const ask = el("button", "link", "Ask Claude");
