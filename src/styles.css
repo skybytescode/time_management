@@ -38,6 +38,7 @@ body {
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 4px;
   padding: 10px;
@@ -66,13 +67,25 @@ body {
   padding: 16px;
 }
 
-/* Today | timer | objectives and notes; stacked with the timer first on narrow windows. */
+/* Today | timer | objectives & notes. The side columns use clamp() so they shrink smoothly, and
+   the layout steps down 3 → 2 → 1 columns as the window narrows (areas reflow, no content clipped). */
 .session-view {
   display: grid;
-  grid-template-columns: 250px minmax(340px, 1fr) 300px;
+  grid-template-columns: clamp(210px, 20vw, 260px) minmax(320px, 1fr) clamp(260px, 22vw, 320px);
+  grid-template-areas: "today center side";
   align-items: start;
-  gap: 24px;
-  max-width: 1280px;
+  gap: clamp(14px, 2vw, 24px);
+  max-width: 1400px;
+}
+
+.today {
+  grid-area: today;
+}
+.center {
+  grid-area: center;
+}
+.side {
+  grid-area: side;
 }
 
 .column {
@@ -100,14 +113,31 @@ body {
   color: var(--muted);
 }
 
-@media (max-width: 980px) {
+/* Medium: timer + objectives/notes side by side, today full width below. */
+@media (max-width: 1080px) {
   .session-view {
-    grid-template-columns: 1fr;
-    max-width: 600px;
+    grid-template-columns: minmax(300px, 1fr) clamp(240px, 36vw, 320px);
+    grid-template-areas:
+      "center side"
+      "today today";
+    max-width: 900px;
   }
 
-  .center {
-    order: -1;
+  .today {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* Narrow: a single column, timer first. */
+@media (max-width: 720px) {
+  .session-view {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "center"
+      "today"
+      "side";
+    max-width: 600px;
   }
 
   .today,
@@ -371,6 +401,7 @@ input[type="date"] {
 
 .ranges {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -867,8 +898,14 @@ textarea {
   font-weight: 600;
 }
 
+/* On narrow windows the month grid scrolls sideways instead of squashing. */
+.history-calendar {
+  overflow-x: auto;
+}
+
 .calendar {
   width: 100%;
+  min-width: 560px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -982,7 +1019,7 @@ textarea {
 
 .act-app {
   display: grid;
-  grid-template-columns: 160px 1fr 64px;
+  grid-template-columns: clamp(96px, 28vw, 160px) 1fr 56px;
   align-items: center;
   gap: 10px;
 }
@@ -1024,12 +1061,23 @@ textarea {
 
 .act-interval {
   display: grid;
-  grid-template-columns: 110px 54px 140px 1fr;
+  grid-template-columns: 104px 48px clamp(90px, 22vw, 140px) 1fr;
   gap: 10px;
   align-items: baseline;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
+}
+
+/* Very narrow: the interval wraps to two lines instead of overflowing. */
+@media (max-width: 460px) {
+  .act-interval {
+    grid-template-columns: auto auto 1fr;
+  }
+
+  .act-title {
+    grid-column: 1 / -1;
+  }
 }
 
 .act-when,
