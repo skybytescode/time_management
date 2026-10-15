@@ -539,28 +539,27 @@ async function loadHistory() {
   sessionsList.replaceChildren(...records.map((r) => sessionItem(r, worked(r), now)));
 }
 
-// A small two-slice pie of work (gold) vs break (grey) time.
-function timePie(workMs, breakMs) {
-  const total = workMs + breakMs;
+// A clock-like pie: the session runs from 12 o'clock clockwise, work in gold and each break as a
+// grey wedge at the position in time it actually happened.
+function timePie(record, now) {
+  const start = record.start_ms;
+  const end = record.end_ms ?? now;
+  const total = Math.max(1, end - start);
   const pie = el("div", "record-pie");
-  if (total <= 0) return pie;
   const pt = (frac) => {
     const a = frac * 2 * Math.PI;
     return [22 + 20 * Math.sin(a), 22 - 20 * Math.cos(a)];
   };
-  let slices;
-  if (breakMs <= 0) {
-    slices = `<circle cx="22" cy="22" r="20" class="pie-work" />`;
-  } else if (workMs <= 0) {
-    slices = `<circle cx="22" cy="22" r="20" class="pie-break" />`;
-  } else {
-    const bf = breakMs / total;
-    const [bx, by] = pt(bf);
-    slices =
-      `<circle cx="22" cy="22" r="20" class="pie-work" />` +
-      `<path d="M22 22 L22 2 A20 20 0 ${bf > 0.5 ? 1 : 0} 1 ${bx.toFixed(2)} ${by.toFixed(2)} Z" class="pie-break" />`;
+  let wedges = "";
+  for (const b of record.breaks) {
+    const f0 = (b.start_ms - start) / total;
+    const f1 = ((b.end_ms ?? end) - start) / total;
+    if (f1 <= f0) continue;
+    const [x0, y0] = pt(f0);
+    const [x1, y1] = pt(f1);
+    wedges += `<path d="M22 22 L${x0.toFixed(2)} ${y0.toFixed(2)} A20 20 0 ${f1 - f0 > 0.5 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" class="pie-break" />`;
   }
-  pie.innerHTML = `<svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">${slices}</svg>`;
+  pie.innerHTML = `<svg width="110" height="110" viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="20" class="pie-work" />${wedges}</svg>`;
   return pie;
 }
 
@@ -615,7 +614,7 @@ function sessionItem(record, worked, now) {
   main.append(details);
 
   const breakTotal = recordBreakMs(record, now);
-  const pie = timePie(worked, breakTotal);
+  const pie = timePie(record, now);
   pie.title = `${hoursMinutes(total)} total · ${hoursMinutes(worked)} work · ${hoursMinutes(breakTotal)} break`;
   item.append(main, pie);
   return item;
