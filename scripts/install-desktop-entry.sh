@@ -4,13 +4,21 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-app_id=com.skybytescode.timemanagement
+# The window's Wayland app_id is `time_management`; naming the .desktop file the same lets KWin
+# resolve the taskbar and titlebar icon directly, instead of falling back to a letter placeholder.
+app_id=time_management
 bin="$HOME/.local/bin/time_management"
 
 install -Dm755 "$root/src-tauri/target/release/time_management" "$bin"
 icon="$HOME/.local/share/icons/$app_id.png"
 
 install -Dm644 "$root/src-tauri/icons/128x128.png" "$icon"
+
+# Remove the earlier identifier-named entries, whose name didn't match the app_id.
+rm -f "$HOME/.local/share/applications/com.skybytescode.timemanagement.desktop" \
+      "$HOME/.config/autostart/com.skybytescode.timemanagement.desktop" \
+      "$HOME/.local/share/icons/com.skybytescode.timemanagement.png"
+
 mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/$app_id.desktop" <<EOF
 [Desktop Entry]
@@ -31,6 +39,7 @@ if command -v kbuildsycoca6 > /dev/null; then kbuildsycoca6 > /dev/null 2>&1 || 
 if command -v qdbus6 > /dev/null && qdbus6 org.kde.plasmashell > /dev/null 2>&1; then
   qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
     const launcher = 'applications:$app_id.desktop';
+    const old = 'applications:com.skybytescode.timemanagement.desktop';
     const defaults = ['applications:systemsettings.desktop', 'applications:org.kde.discover.desktop',
                       'preferred://filemanager', 'preferred://browser'];
     for (const panel of panels()) for (const w of panel.widgets()) {
@@ -38,7 +47,9 @@ if command -v qdbus6 > /dev/null && qdbus6 org.kde.plasmashell > /dev/null 2>&1;
       w.currentConfigGroup = ['General'];
       let launchers = w.readConfig('launchers', []);
       if (launchers.length === 0) launchers = defaults;
-      if (launchers.indexOf(launcher) < 0) w.writeConfig('launchers', launchers.concat([launcher]));
+      launchers = launchers.filter(l => l !== old);
+      if (launchers.indexOf(launcher) < 0) launchers = launchers.concat([launcher]);
+      w.writeConfig('launchers', launchers);
     }" > /dev/null 2>&1
 fi
 
