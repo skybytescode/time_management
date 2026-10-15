@@ -742,12 +742,14 @@ textarea {
 
 .day-totals {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .day-totals > div {
   display: flex;
   flex: 1;
+  min-width: 72px;
   flex-direction: column;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -766,10 +768,11 @@ textarea {
   font-size: 1.15rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .session-totals {
-  width: min(320px, 100%);
+  width: min(480px, 100%);
 }
 
 .today-sessions {
