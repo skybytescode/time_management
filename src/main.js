@@ -547,7 +547,9 @@ function sessionItem(record, worked, now) {
   const day = new Date(record.start_ms).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
   const span = `${day} · ${clockTime(record.start_ms)}–${record.end_ms ? clockTime(record.end_ms) : "now"}`;
   const plan = record.planned_minutes ? ` of ${record.planned_minutes}m` : "";
-  head.append(el("span", "when", span), el("span", "worked", `${hoursMinutes(worked)}${plan}`));
+  const breakTotal = recordBreakMs(record, now);
+  const breakText = record.breaks.length ? ` · break ${hoursMinutes(breakTotal)}` : "";
+  head.append(el("span", "when", span), el("span", "worked", `${hoursMinutes(worked)}${plan}${breakText}`));
   const taskRow = el("div", "record-task-row");
   const ask = el("button", "link", "Ask Claude");
   ask.addEventListener("click", () => askAbout(record));
