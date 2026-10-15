@@ -24,7 +24,9 @@ const BREAK_MS: i64 = 5 * MINUTE_MS;
 #[derive(Clone, Serialize)]
 pub struct Session {
     id: i64,
+    /// The session's title.
     task: String,
+    objectives: String,
     start_ms: i64,
     /// Set for timed sessions.
     end_ms: Option<i64>,
@@ -181,14 +183,13 @@ fn get_messages(state: State<AppState>) -> Result<Vec<db::Message>, String> {
 #[tauri::command]
 fn start_session(
     task: String,
+    objectives: String,
     minutes: Option<u32>,
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<Session, String> {
-    let task = task.trim().to_string();
-    if task.is_empty() {
-        return Err("write what you're working on first".into());
-    }
+    let task = session_title(&task)?;
+    let objectives = objectives.trim().to_string();
     if minutes.is_some_and(|m| !(1..=MAX_MINUTES).contains(&m)) {
         return Err(format!("session length must be 1 to {MAX_MINUTES} minutes"));
     }
@@ -198,11 +199,18 @@ fn start_session(
     }
 
     let start_ms = now_ms();
-    let id =
-        db::create_session(&state.db.lock().unwrap(), &task, minutes, start_ms).map_err(err)?;
+    let id = db::create_session(
+        &state.db.lock().unwrap(),
+        &task,
+        &objectives,
+        minutes,
+        start_ms,
+    )
+    .map_err(err)?;
     let session = Session {
         id,
         task,
+        objectives,
         start_ms,
         end_ms: minutes.map(|m| start_ms + i64::from(m) * MINUTE_MS),
         block_error: blocker::block_sites().err(),
@@ -218,6 +226,38 @@ fn start_session(
     let announced = session.clone();
     thread::spawn(move || assistant::session_started(&app, &announced));
     Ok(session)
+}
+
+fn session_title(task: &str) -> Result<String, String> {
+    let task = task.trim();
+    if task.is_empty() {
+        Err("write what you're working on first".into())
+    } else {
+        Ok(task.to_string())
+    }
+}
+
+/// Edits the title and objectives of the running session; ended sessions can't be changed.
+#[tauri::command]
+fn update_session_info(
+    task: String,
+    objectives: String,
+    state: State<AppState>,
+) -> Result<Session, String> {
+    let task = session_title(&task)?;
+    let objectives = objectives.trim().to_string();
+    let mut current = state.session.lock().unwrap();
+    let session = current
+        .as_mut()
+        .ok_or("the session has ended and can't be edited")?;
+    if !db::update_session_info(&state.db.lock().unwrap(), session.id, &task, &objectives)
+        .map_err(err)?
+    {
+        return Err("the session has ended and can't be edited".into());
+    }
+    session.task = task;
+    session.objectives = objectives;
+    Ok(session.clone())
 }
 
 #[tauri::command]
@@ -335,6 +375,7 @@ pub fn run() {
             get_session,
             get_messages,
             start_session,
+            update_session_info,
             stop_session,
             set_break,
             history,

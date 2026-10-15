@@ -35,6 +35,7 @@ const times = $("times");
 const status = $("status");
 const feed = $("feed");
 const currentNotes = $("current-notes");
+const sessionTotals = $("session-totals");
 
 let minutes = 25;
 let session = null; // see `Session` in lib.rs
@@ -96,6 +97,11 @@ function drawDial(fraction) {
 }
 
 const breakMs = (s, now) => s.break_ms + (s.break_start_ms ? now - s.break_start_ms : 0);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// Break and work time of a history record; a running one counts up to `now`.
+const recordBreakMs = (r, now) => r.breaks.reduce((sum, b) => sum + (b.end_ms ?? r.end_ms ?? now) - b.start_ms, 0);
+const recordWorkedMs = (r, now) => (r.end_ms ?? now) - r.start_ms - recordBreakMs(r, now);
 
 function tick() {
   const now = Date.now();
@@ -113,13 +119,136 @@ function tick() {
     remainingText.textContent = duration(elapsed);
   }
   if (session) {
-    const worked = now - session.start_ms - breakMs(session, now);
     const parts = [`Started ${clockTime(session.start_ms)}`];
     if (session.end_ms) parts.push(`Ends ${clockTime(session.end_ms)}`);
-    parts.push(session.break_start_ms ? `On break ${duration(now - session.break_start_ms)}` : `Worked ${hoursMinutes(worked)}`);
+    if (session.break_start_ms) parts.push(`On break ${duration(now - session.break_start_ms)}`);
     times.textContent = parts.join(" · ");
+    const breaks = session.breaks + (session.break_start_ms ? 1 : 0);
+    $("session-worked").textContent = hoursMinutes(now - session.start_ms - breakMs(session, now));
+    $("session-breaks").textContent = `${hoursMinutes(breakMs(session, now))} (${breaks})`;
+  }
+  // The Today column counts up with the running session, once a second is enough.
+  const second = Math.floor(now / 1000);
+  if (second !== lastTodaySecond) {
+    lastTodaySecond = second;
+    updateToday(now);
   }
 }
+
+// ---- Today column ----
+
+let todayRecords = [];
+let todayFields = []; // [record, worked element, breaks element]
+let lastTodaySecond = 0;
+
+async function loadToday() {
+  const from_ms = new Date().setHours(0, 0, 0, 0);
+  try {
+    todayRecords = await invoke("history", { filter: { from_ms, to_ms: null, query: null } });
+  } catch (e) {
+    status.textContent = String(e);
+  }
+  renderToday();
+}
+
+function updateToday(now) {
+  const worked = todayRecords.reduce((sum, r) => sum + recordWorkedMs(r, now), 0);
+  const breaks = todayRecords.reduce((sum, r) => sum + recordBreakMs(r, now), 0);
+  $("today-worked").textContent = hoursMinutes(worked);
+  $("today-breaks").textContent = hoursMinutes(breaks);
+  for (const [r, workedField, breaksField] of todayFields) {
+    workedField.textContent = `Worked ${hoursMinutes(recordWorkedMs(r, now))}`;
+    breaksField.textContent = `Breaks ${hoursMinutes(recordBreakMs(r, now))} (${r.breaks.length})`;
+  }
+}
+
+// Newest first; the times are filled in by updateToday.
+function renderToday() {
+  todayFields = [];
+  const items = todayRecords.map((r) => {
+    const item = el("li", r.end_ms ? "today-session" : "today-session running");
+    const head = el("div", "record-head");
+    head.append(el("span", "when", `${clockTime(r.start_ms)}–${r.end_ms ? clockTime(r.end_ms) : "now"}`));
+    item.append(head, el("p", "today-title", r.task));
+    const totals = el("div", "today-totals");
+    const workedField = el("span");
+    const breaksField = el("span");
+    totals.append(workedField, breaksField);
+    todayFields.push([r, workedField, breaksField]);
+    item.append(totals);
+    if (r.objectives) item.title = r.objectives;
+    return item;
+  });
+  if (!items.length) items.push(el("li", "chat-hint", "No sessions yet today."));
+  $("today-sessions").replaceChildren(...items);
+  updateToday(Date.now());
+}
+
+// ---- Objectives ----
+
+const objectivesInput = $("objectives-input");
+const objectivesView = $("objectives-view");
+const objectivesForm = $("objectives-form");
+const objectivesActions = $("objectives-actions");
+const objectivesDelete = $("objectives-delete");
+const objectivesError = $("objectives-error");
+let editingObjectives = false;
+
+function renderObjectives() {
+  if (!session) editingObjectives = false;
+  objectivesInput.hidden = Boolean(session);
+  objectivesView.hidden = !session || editingObjectives;
+  objectivesForm.hidden = !editingObjectives;
+  objectivesActions.hidden = !session || editingObjectives;
+  if (!session) return;
+  $("objectives-title").textContent = session.task;
+  const text = $("objectives-text");
+  text.textContent = session.objectives || "No objectives written for this session.";
+  text.classList.toggle("empty", !session.objectives);
+  objectivesDelete.hidden = !session.objectives;
+}
+
+async function saveSessionInfo(task, objectives) {
+  try {
+    session = await invoke("update_session_info", { task, objectives });
+    editingObjectives = false;
+    objectivesError.textContent = "";
+    loadToday();
+  } catch (e) {
+    objectivesError.textContent = String(e);
+  }
+  render();
+}
+
+$("objectives-edit").addEventListener("click", () => {
+  editingObjectives = true;
+  $("edit-title").value = session.task;
+  $("edit-objectives").value = session.objectives;
+  render();
+  $("edit-objectives").focus();
+});
+$("objectives-cancel").addEventListener("click", () => {
+  editingObjectives = false;
+  objectivesError.textContent = "";
+  render();
+});
+$("objectives-save").addEventListener("click", () => saveSessionInfo($("edit-title").value, $("edit-objectives").value));
+$("edit-objectives").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.ctrlKey) $("objectives-save").click();
+});
+// A second click within a few seconds confirms.
+objectivesDelete.addEventListener("click", () => {
+  if (!objectivesDelete.classList.contains("confirm")) {
+    objectivesDelete.classList.add("confirm");
+    objectivesDelete.textContent = "Click again to delete";
+    setTimeout(() => {
+      objectivesDelete.classList.remove("confirm");
+      objectivesDelete.textContent = "Delete";
+    }, 3000);
+    return;
+  }
+  saveSessionInfo(session.task, "");
+});
 
 function renderFeed() {
   feed.replaceChildren(...messages.map(messageItem).reverse());
@@ -258,7 +387,9 @@ function render() {
   currentTask.hidden = !active;
   currentTask.textContent = session?.task ?? "";
   times.hidden = !active;
+  sessionTotals.hidden = !active;
   minutesInput.value = minutes;
+  renderObjectives();
   tick();
 }
 
@@ -283,10 +414,15 @@ toggle.addEventListener("click", async () => {
       status.textContent = "";
       await invoke("stop_session");
     } else {
-      session = await invoke("start_session", { task: taskInput.value, minutes: timed() ? minutes : null });
+      session = await invoke("start_session", {
+        task: taskInput.value,
+        objectives: objectivesInput.value,
+        minutes: timed() ? minutes : null,
+      });
       messages = [];
       renderFeed();
       taskInput.value = "";
+      objectivesInput.value = "";
       status.textContent = session.block_error ? `Sites not blocked: ${session.block_error}` : "";
     }
     showCurrentNotes();
@@ -295,6 +431,7 @@ toggle.addEventListener("click", async () => {
   } finally {
     toggle.disabled = false;
     render();
+    loadToday();
   }
 });
 
@@ -305,6 +442,7 @@ breakButton.addEventListener("click", async () => {
     status.textContent = String(e);
   }
   render();
+  loadToday();
 });
 
 listen("session-finished", () => {
@@ -312,6 +450,7 @@ listen("session-finished", () => {
   showCurrentNotes();
   status.textContent = "Work session finished.";
   render();
+  loadToday();
 });
 
 listen("assistant-message", ({ payload }) => {
@@ -329,7 +468,7 @@ function showView(view) {
     tab.classList.toggle("active", tab.dataset.view === view);
     $(tab.dataset.view).hidden = tab.dataset.view !== view;
   }
-  if (view === "history-view") loadHistory();
+  if (view === "history-view") refreshHistory();
   if (view === "ask-view") question.focus();
 }
 
@@ -391,11 +530,7 @@ async function loadHistory() {
     return;
   }
   const now = Date.now();
-  const worked = (r) => {
-    const end = r.end_ms ?? now;
-    const breaks = r.breaks.reduce((sum, b) => sum + (b.end_ms ?? end) - b.start_ms, 0);
-    return end - r.start_ms - breaks;
-  };
+  const worked = (r) => recordWorkedMs(r, now);
   const total = records.reduce((sum, r) => sum + worked(r), 0);
   const breaks = records.reduce((sum, r) => sum + r.breaks.length, 0);
   summary.textContent = records.length
@@ -418,6 +553,7 @@ function sessionItem(record, worked, now) {
   ask.addEventListener("click", () => askAbout(record));
   taskRow.append(el("p", "record-task", record.task), ask);
   item.append(head, taskRow);
+  if (record.objectives) item.append(el("p", "record-objectives", record.objectives));
 
   // Work in gold, breaks in grey, and a dot for each thing the assistant said.
   const timeline = el("div", "timeline");
@@ -439,7 +575,6 @@ function sessionItem(record, worked, now) {
 
   const details = el("details");
   const heading = el("summary");
-  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const describe = (notes) =>
     (heading.textContent = [plural(notes.length, "note"), plural(record.messages.length, "message"), plural(record.breaks.length, "break")].join(" · "));
   details.append(heading, notesEditor(record.id, record.notes, describe));
@@ -450,6 +585,94 @@ function sessionItem(record, worked, now) {
   }
   item.append(details);
   return item;
+}
+
+// ---- History sub-tabs and calendar ----
+
+let historyPane = "history-list";
+for (const button of document.querySelectorAll("[data-history]")) {
+  button.addEventListener("click", () => {
+    historyPane = button.dataset.history;
+    for (const other of document.querySelectorAll("[data-history]")) {
+      other.classList.toggle("active", other === button);
+      $(other.dataset.history).hidden = other !== button;
+    }
+    refreshHistory();
+  });
+}
+
+function refreshHistory() {
+  if (historyPane === "history-calendar") loadCalendar();
+  else loadHistory();
+}
+
+let calendarMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+$("month-prev").addEventListener("click", () => {
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1);
+  loadCalendar();
+});
+$("month-next").addEventListener("click", () => {
+  calendarMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+  loadCalendar();
+});
+
+// A month grid from Monday to Sunday: each day's sessions, worked and break time.
+async function loadCalendar() {
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
+  const from_ms = calendarMonth.getTime();
+  const to_ms = new Date(year, month + 1, 1).getTime();
+  $("month-label").textContent = calendarMonth.toLocaleDateString([], { month: "long", year: "numeric" });
+  let records;
+  try {
+    records = await invoke("history", { filter: { from_ms, to_ms, query: null } });
+  } catch (e) {
+    $("month-totals").textContent = String(e);
+    return;
+  }
+  const now = Date.now();
+  const byDay = new Map();
+  for (const r of [...records].reverse()) {
+    const day = new Date(r.start_ms).getDate();
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(r);
+  }
+  const sum = (list, f) => list.reduce((total, r) => total + f(r, now), 0);
+  $("month-totals").textContent = records.length
+    ? `${plural(records.length, "session")} · worked ${hoursMinutes(sum(records, recordWorkedMs))} · breaks ${hoursMinutes(sum(records, recordBreakMs))}`
+    : "No sessions this month.";
+
+  const today = new Date();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const offset = (calendarMonth.getDay() + 6) % 7; // Monday first
+  const rows = [];
+  let row;
+  for (let cell = 0; cell < Math.ceil((offset + daysInMonth) / 7) * 7; cell++) {
+    if (cell % 7 === 0) rows.push((row = el("tr")));
+    const day = cell - offset + 1;
+    const td = el("td");
+    row.append(td);
+    if (day < 1 || day > daysInMonth) {
+      td.className = "outside";
+      continue;
+    }
+    if (year === today.getFullYear() && month === today.getMonth() && day === today.getDate()) td.className = "today";
+    td.append(el("div", "day-number", String(day)));
+    const sessions = byDay.get(day) ?? [];
+    if (!sessions.length) continue;
+    const list = el("ul", "day-sessions");
+    for (const r of sessions) {
+      const chip = el("li", "chip", `${clockTime(r.start_ms)}–${r.end_ms ? clockTime(r.end_ms) : "now"}`);
+      chip.dataset.title = r.task;
+      list.append(chip);
+    }
+    td.append(
+      list,
+      el("div", "day-sum", `Work ${hoursMinutes(sum(sessions, recordWorkedMs))}`),
+      el("div", "day-sum breaks", `Breaks ${hoursMinutes(sum(sessions, recordBreakMs))}`),
+    );
+  }
+  $("calendar-body").replaceChildren(...rows);
 }
 
 // ---- Ask ----
@@ -517,6 +740,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   renderFeed();
   render();
   showCurrentNotes();
+  loadToday();
+  // Picks up a new day and sessions changed elsewhere (e.g. notes in History).
+  setInterval(loadToday, 60_000);
   renderChat();
   setInterval(tick, 250);
 });

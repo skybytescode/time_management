@@ -16,72 +16,135 @@
     </nav>
 
     <main id="session-view" class="view session-view">
-      <div id="setup" class="setup">
-        <input id="task" class="task" type="text" maxlength="200" placeholder="What are you working on?" />
-        <div class="setup-row">
-          <div class="modes" role="radiogroup">
-            <label><input type="radio" name="mode" value="open" checked /> Open</label>
-            <label><input type="radio" name="mode" value="timed" /> Timer</label>
-          </div>
-          <div id="setter" class="setter" hidden>
-            <button id="minus" class="step" type="button" aria-label="Remove minutes">−</button>
-            <label class="minutes">
-              <input id="minutes" type="number" min="1" max="240" value="25" />
-              <span>min</span>
-            </label>
-            <button id="plus" class="step" type="button" aria-label="Add minutes">+</button>
+      <aside class="column today">
+        <h3>Today</h3>
+        <div class="day-totals">
+          <div><span class="label">Worked</span><span id="today-worked" class="value">0m</span></div>
+          <div><span class="label">Breaks</span><span id="today-breaks" class="value">0m</span></div>
+        </div>
+        <ul id="today-sessions" class="today-sessions"></ul>
+      </aside>
+
+      <section class="column center">
+        <div id="setup" class="setup">
+          <input id="task" class="task" type="text" maxlength="200" placeholder="Session title: what are you working on?" />
+          <div class="setup-row">
+            <div class="modes" role="radiogroup">
+              <label><input type="radio" name="mode" value="open" checked /> Open</label>
+              <label><input type="radio" name="mode" value="timed" /> Timer</label>
+            </div>
+            <div id="setter" class="setter" hidden>
+              <button id="minus" class="step" type="button" aria-label="Remove minutes">−</button>
+              <label class="minutes">
+                <input id="minutes" type="number" min="1" max="240" value="25" />
+                <span>min</span>
+              </label>
+              <button id="plus" class="step" type="button" aria-label="Add minutes">+</button>
+            </div>
           </div>
         </div>
-      </div>
-      <h2 id="current-task" class="current-task" hidden></h2>
+        <h2 id="current-task" class="current-task" hidden></h2>
 
-      <svg id="dial" class="dial" viewBox="0 0 200 200" aria-hidden="true">
-        <defs>
-          <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="40" y1="30" x2="160" y2="170">
-            <stop offset="0" stop-color="#f7e08a" />
-            <stop offset="0.45" stop-color="#d4af37" />
-            <stop offset="1" stop-color="#a67c1a" />
-          </linearGradient>
-        </defs>
-        <circle class="face" cx="100" cy="100" r="96" />
-        <g id="ticks"></g>
-        <circle id="disc" class="left" cx="100" cy="100" r="80" />
-        <path id="wedge" class="left" />
-        <line id="hand" class="hand" x1="100" y1="100" x2="100" y2="20" />
-        <circle class="hub" cx="100" cy="100" r="5" />
-      </svg>
+        <svg id="dial" class="dial" viewBox="0 0 200 200" aria-hidden="true">
+          <defs>
+            <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="40" y1="30" x2="160" y2="170">
+              <stop offset="0" stop-color="#f7e08a" />
+              <stop offset="0.45" stop-color="#d4af37" />
+              <stop offset="1" stop-color="#a67c1a" />
+            </linearGradient>
+          </defs>
+          <circle class="face" cx="100" cy="100" r="96" />
+          <g id="ticks"></g>
+          <circle id="disc" class="left" cx="100" cy="100" r="80" />
+          <path id="wedge" class="left" />
+          <line id="hand" class="hand" x1="100" y1="100" x2="100" y2="20" />
+          <circle class="hub" cx="100" cy="100" r="5" />
+        </svg>
 
-      <p id="remaining" class="remaining">0:00</p>
-      <p id="times" class="times" hidden></p>
-      <div class="controls">
-        <button id="toggle" class="toggle" type="button">Start</button>
-        <button id="break" class="secondary" type="button" hidden>Break</button>
-      </div>
-      <p id="status" class="status"></p>
-      <section id="current-notes" class="panel" hidden>
-        <h3>Notes</h3>
+        <p id="remaining" class="remaining">0:00</p>
+        <p id="times" class="times" hidden></p>
+        <div id="session-totals" class="day-totals session-totals" hidden>
+          <div><span class="label">Worked</span><span id="session-worked" class="value"></span></div>
+          <div><span class="label">Breaks</span><span id="session-breaks" class="value"></span></div>
+        </div>
+        <div class="controls">
+          <button id="toggle" class="toggle" type="button">Start</button>
+          <button id="break" class="secondary" type="button" hidden>Break</button>
+        </div>
+        <p id="status" class="status"></p>
+        <section class="panel">
+          <ul id="feed" class="feed"></ul>
+        </section>
       </section>
-      <section class="panel">
-        <ul id="feed" class="feed"></ul>
-      </section>
+
+      <aside class="column side">
+        <section class="panel objectives">
+          <div class="panel-head">
+            <h3>Objectives</h3>
+            <span id="objectives-actions" class="note-actions" hidden>
+              <button id="objectives-edit" class="link" type="button">Edit</button>
+              <button id="objectives-delete" class="link danger" type="button">Delete</button>
+            </span>
+          </div>
+          <textarea id="objectives-input" rows="5" placeholder="What should this session achieve?"></textarea>
+          <div id="objectives-view" class="objectives-view" hidden>
+            <p id="objectives-title" class="objectives-title"></p>
+            <p id="objectives-text" class="objectives-text"></p>
+          </div>
+          <div id="objectives-form" class="notes" hidden>
+            <input id="edit-title" type="text" maxlength="200" placeholder="Session title" />
+            <textarea id="edit-objectives" rows="5" placeholder="Objectives"></textarea>
+            <div class="note-buttons">
+              <button id="objectives-save" class="small" type="button">Save</button>
+              <button id="objectives-cancel" class="link" type="button">Cancel</button>
+            </div>
+          </div>
+          <p id="objectives-error" class="note-error"></p>
+        </section>
+        <section id="current-notes" class="panel" hidden>
+          <h3>Notes</h3>
+        </section>
+      </aside>
     </main>
 
     <main id="history-view" class="view history-view" hidden>
-      <div class="filters">
-        <div class="ranges">
-          <button type="button" data-range="today">Today</button>
-          <button type="button" data-range="week" class="active">7 days</button>
-          <button type="button" data-range="month">30 days</button>
-          <button type="button" data-range="all">All</button>
-        </div>
-        <div class="filter-row">
-          <label>From <input id="from" type="date" /></label>
-          <label>To <input id="to" type="date" /></label>
-          <input id="search" type="search" placeholder="Search tasks and notes" />
-        </div>
+      <div class="subtabs">
+        <button type="button" data-history="history-list" class="active">List</button>
+        <button type="button" data-history="history-calendar">Calendar</button>
       </div>
-      <p id="summary" class="summary"></p>
-      <ul id="sessions" class="sessions"></ul>
+
+      <div id="history-list" class="history-list">
+        <div class="filters">
+          <div class="ranges">
+            <button type="button" data-range="today">Today</button>
+            <button type="button" data-range="week" class="active">7 days</button>
+            <button type="button" data-range="month">30 days</button>
+            <button type="button" data-range="all">All</button>
+          </div>
+          <div class="filter-row">
+            <label>From <input id="from" type="date" /></label>
+            <label>To <input id="to" type="date" /></label>
+            <input id="search" type="search" placeholder="Search titles, objectives and notes" />
+          </div>
+        </div>
+        <p id="summary" class="summary"></p>
+        <ul id="sessions" class="sessions"></ul>
+      </div>
+
+      <div id="history-calendar" class="history-calendar" hidden>
+        <div class="calendar-head">
+          <button id="month-prev" class="step" type="button" aria-label="Previous month">‹</button>
+          <h3 id="month-label"></h3>
+          <button id="month-next" class="step" type="button" aria-label="Next month">›</button>
+          <span id="month-totals" class="month-totals"></span>
+        </div>
+        <table class="calendar">
+          <thead>
+            <tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr>
+          </thead>
+          <tbody id="calendar-body"></tbody>
+        </table>
+      </div>
     </main>
 
     <main id="ask-view" class="view ask-view" hidden>

@@ -16,7 +16,13 @@ npm run tauri build   # build a release bundle
 
 ## Work sessions
 
-Write what you're working on and press **Start**. A session is either **Open** (it runs until
+The **Session** tab has three columns: today's sessions with total work and break time on the
+left, the timer with the current session's work and break time in the middle, and the session's
+objectives and notes on the right.
+
+Write the session's title (what you're working on) and, optionally, its objectives, then press
+**Start**. While the session runs, the title and objectives can be edited or the objectives
+deleted; once it ends they are read-only. A session is either **Open** (it runs until
 you press Stop) or a **Timer** (pick a length with − / +). **Break** pauses the work clock; the
 assistant calls you back after five minutes, and sites stay blocked during breaks.
 
@@ -59,8 +65,9 @@ Set `TM_CHECK_IN_MINUTES=2` to try the check-ins without waiting an hour.
 
 Sessions, breaks and everything the assistant said are stored in SQLite at
 `~/.local/share/com.skybytescode.timemanagement/history.db`. The **History** tab lists them with
-date and text filters (the search also covers notes), a timeline of work, breaks and assistant
-messages per session, and totals.
+date and text filters (the search also covers objectives and notes), a timeline of work, breaks
+and assistant messages per session, and totals. Its **Calendar** view shows a month: each day's
+sessions (hover one for its title), work time and break time.
 
 ## Notes and Ask
 

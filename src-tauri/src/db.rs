@@ -10,7 +10,8 @@ pub type Db = Connection;
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY,
-    task TEXT NOT NULL,
+    task TEXT NOT NULL,             -- the session's title
+    objectives TEXT NOT NULL DEFAULT '',
     planned_minutes INTEGER,
     start_ms INTEGER NOT NULL,
     end_ms INTEGER,                 -- NULL while running
@@ -76,6 +77,7 @@ pub struct Note {
 pub struct SessionRecord {
     pub id: i64,
     pub task: String,
+    pub objectives: String,
     pub planned_minutes: Option<i64>,
     pub start_ms: i64,
     pub end_ms: Option<i64>,
@@ -95,6 +97,13 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
     let db = Connection::open(path)?;
     db.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
     db.execute_batch(SCHEMA)?;
+    // Databases from before session objectives existed.
+    let has_objectives = db
+        .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'objectives'")?
+        .exists([])?;
+    if !has_objectives {
+        db.execute_batch("ALTER TABLE sessions ADD COLUMN objectives TEXT NOT NULL DEFAULT ''")?;
+    }
     // Sessions left running by a crash or power loss end where they were last seen.
     db.execute_batch(
         "UPDATE sessions SET end_ms = last_seen_ms WHERE end_ms IS NULL;
@@ -106,14 +115,30 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
 pub fn create_session(
     db: &Db,
     task: &str,
+    objectives: &str,
     planned_minutes: Option<u32>,
     start_ms: i64,
 ) -> rusqlite::Result<i64> {
     db.execute(
-        "INSERT INTO sessions (task, planned_minutes, start_ms, last_seen_ms) VALUES (?1, ?2, ?3, ?3)",
-        params![task, planned_minutes, start_ms],
+        "INSERT INTO sessions (task, objectives, planned_minutes, start_ms, last_seen_ms)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![task, objectives, planned_minutes, start_ms],
     )?;
     Ok(db.last_insert_rowid())
+}
+
+/// Changes the title and objectives of a running session; returns false if it has ended.
+pub fn update_session_info(
+    db: &Db,
+    id: i64,
+    task: &str,
+    objectives: &str,
+) -> rusqlite::Result<bool> {
+    let changed = db.execute(
+        "UPDATE sessions SET task = ?2, objectives = ?3 WHERE id = ?1 AND end_ms IS NULL",
+        params![id, task, objectives],
+    )?;
+    Ok(changed == 1)
 }
 
 pub fn touch_session(db: &Db, id: i64, now_ms: i64) -> rusqlite::Result<()> {
@@ -242,7 +267,8 @@ fn session_breaks(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Interval>> {
         .collect()
 }
 
-/// Sessions started in the filter's range whose task or notes contain the query, newest first.
+/// Sessions started in the filter's range whose title, objectives or notes contain the query,
+/// newest first.
 pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionRecord>> {
     let pattern = filter.query.as_deref().map(|q| {
         let escaped = q
@@ -254,9 +280,9 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
     });
     let mut sessions: Vec<SessionRecord> = db
         .prepare(
-            "SELECT id, task, planned_minutes, start_ms, end_ms FROM sessions
+            "SELECT id, task, objectives, planned_minutes, start_ms, end_ms FROM sessions
              WHERE (?1 IS NULL OR start_ms >= ?1) AND (?2 IS NULL OR start_ms < ?2)
-               AND (?3 IS NULL OR task LIKE ?3 ESCAPE '\\' OR EXISTS
+               AND (?3 IS NULL OR task LIKE ?3 ESCAPE '\\' OR objectives LIKE ?3 ESCAPE '\\' OR EXISTS
                     (SELECT 1 FROM notes WHERE session_id = sessions.id AND text LIKE ?3 ESCAPE '\\'))
              ORDER BY start_ms DESC",
         )?
@@ -264,9 +290,10 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
             Ok(SessionRecord {
                 id: row.get(0)?,
                 task: row.get(1)?,
-                planned_minutes: row.get(2)?,
-                start_ms: row.get(3)?,
-                end_ms: row.get(4)?,
+                objectives: row.get(2)?,
+                planned_minutes: row.get(3)?,
+                start_ms: row.get(4)?,
+                end_ms: row.get(5)?,
                 breaks: Vec::new(),
                 messages: Vec::new(),
                 notes: Vec::new(),
@@ -320,8 +347,8 @@ mod tests {
     #[test]
     fn notes_belong_to_their_session_and_are_searchable() {
         let db = open(Path::new(":memory:")).unwrap();
-        let first = create_session(&db, "Write report", None, 1_000).unwrap();
-        let second = create_session(&db, "Fix login bug", Some(25), 2_000).unwrap();
+        let first = create_session(&db, "Write report", "", None, 1_000).unwrap();
+        let second = create_session(&db, "Fix login bug", "", Some(25), 2_000).unwrap();
 
         let note = add_note(&db, first, "ask Ion about the 100% figure", 1_500).unwrap();
         add_note(&db, second, "token expires too early", 2_500).unwrap();
@@ -348,5 +375,28 @@ mod tests {
         delete_note(&db, note.id).unwrap();
         assert!(session_notes(&db, first).unwrap().is_empty());
         assert_eq!(session_notes(&db, second).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn title_and_objectives_are_editable_only_while_running() {
+        let db = open(Path::new(":memory:")).unwrap();
+        let id = create_session(&db, "Report", "draft intro", None, 1_000).unwrap();
+        assert!(
+            update_session_info(&db, id, "Quarterly report", "draft intro and summary").unwrap()
+        );
+
+        end_session(&db, id, 2_000).unwrap();
+        assert!(!update_session_info(&db, id, "Changed", "").unwrap());
+
+        let filter = HistoryFilter {
+            from_ms: None,
+            to_ms: None,
+            query: Some("summary".into()),
+        };
+        let record = history(&db, &filter).unwrap().pop().unwrap();
+        assert_eq!(
+            (record.task.as_str(), record.objectives.as_str()),
+            ("Quarterly report", "draft intro and summary")
+        );
     }
 }

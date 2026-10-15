@@ -278,16 +278,26 @@ fn session_kind(session: &Session) -> String {
     }
 }
 
+/// "Objectives: …" plus a newline, or nothing when none were written.
+fn objectives_line(objectives: &str) -> String {
+    if objectives.is_empty() {
+        String::new()
+    } else {
+        format!("Objectives: {objectives}\n")
+    }
+}
+
 /// Announces a new session with a good-luck message about its task.
 pub fn session_started(app: &AppHandle, session: &Session) {
     let prompt = format!(
-        "Sergiu just started a work session. It is {}. It's {}.\nTask: \"{}\"\n\
+        "Sergiu just started a work session. It is {}. It's {}.\nTask: \"{}\"\n{}\
          Sessions earlier today:\n{}\n\n\
-         Say the session has started and wish good luck in a way that fits this specific task. \
-         One or two short sentences.",
+         Say the session has started and wish good luck in a way that fits this specific task \
+         and its objectives. One or two short sentences.",
         time_context(),
         session_kind(session),
         session.task,
+        objectives_line(&session.objectives),
         recent_sessions(
             app,
             Local::now()
@@ -326,7 +336,7 @@ pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: 
     };
     let prompt = format!(
         "Sergiu just {} a work session on \"{}\": {worked} minutes of work and {} breaks. It is {}.\n\
-         What you saw on screen during the session:\n{}\n\n\
+         {}What you saw on screen during the session:\n{}\n\n\
          Give a short closing remark: acknowledge the work specifically and suggest some rest. \
          One or two sentences.",
         if finished {
@@ -337,6 +347,7 @@ pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: 
         session.task,
         session.breaks,
         time_context(),
+        objectives_line(&session.objectives),
         if notes.is_empty() {
             "nothing recorded"
         } else {
@@ -428,19 +439,20 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
     };
     let prompt = format!(
         "Hourly check-in. It is {}. Sergiu's task: \"{}\".\n\
-         The session has run {elapsed} minutes, {since_break} minutes since the last break \
+         {}The session has run {elapsed} minutes, {since_break} minutes since the last break \
          ({} breaks so far). The images are the active window over the last few minutes.\n\
          What you said earlier this session:\n{}\n\
          Sergiu's notes in this session:\n{}\n\n\
          First work out what Sergiu is actually doing. Then say one genuinely useful thing: a \
          concrete technical tip about what's on screen, something that might be overlooked (a bug, \
          a risky step, a better approach), or real motivation if it's going well. If the work has \
-         drifted from the task, point that out kindly. Don't repeat earlier advice.\n\
+         drifted from the task or its objectives, point that out kindly. Don't repeat earlier advice.\n\
          Breaks: if it's been 60 or more minutes since the last break, also recommend a 5 minute \
          break. At 120 or more, make the break the main message and be firm about it.\n\
          Two to four spoken sentences.",
         time_context(),
         session.task,
+        objectives_line(&session.objectives),
         session.breaks,
         if earlier.is_empty() {
             "nothing yet"
@@ -510,11 +522,12 @@ fn describe_session(record: &db::SessionRecord) -> String {
         .end_ms
         .map_or("still running".into(), |ms| local(ms, "%H:%M"));
     let mut text = format!(
-        "## Session {}: \"{}\"\n{} to {end}, {} breaks\n",
+        "## Session {}: \"{}\"\n{} to {end}, {} breaks\n{}",
         record.id,
         record.task,
         local(record.start_ms, "%A %-d %B %Y, %H:%M"),
         record.breaks.len(),
+        objectives_line(&record.objectives),
     );
     if !record.notes.is_empty() {
         text.push_str("Notes:\n");
