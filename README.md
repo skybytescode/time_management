@@ -72,6 +72,13 @@ sh scripts/install-voice.sh
 
 Set `TM_CHECK_IN_MINUTES=2` to try the check-ins without waiting an hour.
 
+## Goals
+
+The **Goals** tab holds long-term goals that don't belong to any one session: a title, optional
+details and an optional target date, each marked active or done. The assistant keeps the big
+picture — active goals flow into the greeting, the session start message, the hourly check-ins and
+the Ask chat, alongside the current session's objectives.
+
 ## Activity tracking
 
 The **Activity** tab records which application is in the foreground and for how long. On KDE

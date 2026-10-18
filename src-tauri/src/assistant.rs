@@ -185,6 +185,17 @@ fn recent_sessions(app: &AppHandle, since_ms: i64) -> String {
     }
 }
 
+/// Sergiu's active long-term goals, shared with every assistant message so it keeps the big picture.
+fn global_goals(app: &AppHandle) -> String {
+    let state = app.state::<AppState>();
+    let lines = db::active_goal_lines(&state.db.lock().unwrap()).unwrap_or_default();
+    if lines.is_empty() {
+        "none set".into()
+    } else {
+        lines.join("\n")
+    }
+}
+
 /// Saves the message, shows it in the window and says it.
 fn deliver(
     app: &AppHandle,
@@ -232,10 +243,12 @@ pub fn greet(app: &AppHandle) {
 
     let prompt = format!(
         "Sergiu just turned on the computer and the app opened. It is {}.\n\
+         His long-term goals:\n{}\n\
          Work sessions in the last three days:\n{}\n\n\
          Greet Sergiu by name with a greeting that fits the time of day, then add something \
-         motivating for what's ahead. You may refer to recent work. Two or three sentences.",
+         motivating for what's ahead. You may refer to recent work or a goal. Two or three sentences.",
         time_context(),
+        global_goals(app),
         recent_sessions(app, now_ms() - 3 * 24 * 3_600_000),
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
@@ -291,13 +304,15 @@ fn objectives_line(objectives: &str) -> String {
 pub fn session_started(app: &AppHandle, session: &Session) {
     let prompt = format!(
         "Sergiu just started a work session. It is {}. It's {}.\nTask: \"{}\"\n{}\
+         His long-term goals:\n{}\n\
          Sessions earlier today:\n{}\n\n\
          Say the session has started and wish good luck in a way that fits this specific task \
-         and its objectives. One or two short sentences.",
+         and its objectives; you may tie it to a goal if it fits. One or two short sentences.",
         time_context(),
         session_kind(session),
         session.task,
         objectives_line(&session.objectives),
+        global_goals(app),
         recent_sessions(
             app,
             Local::now()
@@ -464,20 +479,23 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
     };
     let prompt = format!(
         "Check-in. It is {}. Sergiu's task: \"{}\".\n\
-         {}The session has run {elapsed} minutes, {since_break} minutes since the last break \
+         {}His long-term goals:\n{}\n\
+         The session has run {elapsed} minutes, {since_break} minutes since the last break \
          ({} breaks so far). The images are the active window over the last few minutes.\n\
          What you said earlier this session:\n{}\n\
          Sergiu's notes in this session:\n{}\n\n\
          First work out what Sergiu is actually doing. Then say one genuinely useful thing: a \
          concrete technical tip about what's on screen, something that might be overlooked (a bug, \
          a risky step, a better approach), or real motivation if it's going well. If the work has \
-         drifted from the task or its objectives, point that out kindly. Don't repeat earlier advice.\n\
+         drifted from the task, its objectives or his goals, point that out kindly. Don't repeat \
+         earlier advice.\n\
          Breaks: if it's been 60 or more minutes since the last break, also recommend a 5 minute \
          break. At 120 or more, make the break the main message and be firm about it.\n\
          Two to four spoken sentences.",
         time_context(),
         session.task,
         objectives_line(&session.objectives),
+        global_goals(app),
         session.breaks,
         if earlier.is_empty() {
             "nothing yet"
@@ -626,8 +644,9 @@ pub fn ask_about_notes(
         transcript.push_str(&format!("{who}: {}\n\n", turn.text));
     }
     let prompt = format!(
-        "It is {}. Here is {scope}:\n\n{}\n---\nConversation so far (answer Sergiu's last message):\n\n{transcript}",
+        "It is {}. Sergiu's long-term goals:\n{}\n\nHere is {scope}:\n\n{}\n---\nConversation so far (answer Sergiu's last message):\n\n{transcript}",
         time_context(),
+        global_goals(app),
         if history.is_empty() {
             "No sessions recorded yet.\n".into()
         } else {

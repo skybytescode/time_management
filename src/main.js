@@ -471,6 +471,7 @@ function showView(view) {
     $(tab.dataset.view).hidden = tab.dataset.view !== view;
   }
   if (view === "history-view") refreshHistory();
+  if (view === "goals-view") loadGoals();
   if (view === "activity-view") loadActivity();
   if (view === "blocked-view") loadBlocking();
   if (view === "ask-view") question.focus();
@@ -803,6 +804,165 @@ listen("activity-changed", () => {
   // Coalesce bursts of focus changes.
   clearTimeout(activityRefresh);
   activityRefresh = setTimeout(loadActivity, 500);
+});
+
+// ---- Goals ----
+
+const goalForm = $("goal-form");
+const goalTitle = $("goal-title");
+const goalDetails = $("goal-details");
+const goalDue = $("goal-due");
+const goalError = $("goal-error");
+const goalList = $("goal-list");
+let goalRecords = [];
+let goalFilter = "active";
+
+for (const button of document.querySelectorAll("[data-goals]")) {
+  button.addEventListener("click", () => {
+    goalFilter = button.dataset.goals;
+    for (const other of document.querySelectorAll("[data-goals]")) {
+      other.classList.toggle("active", other === button);
+    }
+    renderGoals();
+  });
+}
+
+async function loadGoals() {
+  try {
+    goalRecords = await invoke("get_goals");
+  } catch (e) {
+    goalError.textContent = String(e);
+  }
+  renderGoals();
+}
+
+const dueDateValue = (ms) => (ms == null ? null : dateValue(ms));
+
+function renderGoals() {
+  const list = goalRecords.filter((g) => goalFilter === "all" || (goalFilter === "done") === g.done);
+  goalList.replaceChildren(...list.map(goalItem));
+  if (!list.length) {
+    const hint = { active: "No active goals. Add one above.", done: "No goals completed yet.", all: "No goals yet." }[goalFilter];
+    goalList.append(el("li", "chat-hint", hint));
+  }
+}
+
+function goalItem(goal) {
+  const item = el("li", goal.done ? "goal done" : "goal");
+
+  const check = el("input");
+  check.type = "checkbox";
+  check.className = "goal-check";
+  check.checked = goal.done;
+  check.title = goal.done ? "Mark as active" : "Mark as done";
+  check.addEventListener("change", async () => {
+    try {
+      Object.assign(goal, await invoke("set_goal_done", { id: goal.id, done: check.checked }));
+      goalError.textContent = "";
+      loadGoals();
+    } catch (e) {
+      goalError.textContent = String(e);
+      check.checked = goal.done;
+    }
+  });
+
+  const body = el("div", "goal-body");
+  const head = el("div", "goal-head");
+  head.append(el("span", "goal-title-text", goal.title));
+  if (goal.due_ms != null && !goal.done) {
+    const overdue = goal.due_ms < Date.now();
+    head.append(el("span", `goal-due${overdue ? " overdue" : ""}`, `by ${new Date(goal.due_ms).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}`));
+  }
+  body.append(head);
+  if (goal.details) body.append(el("p", "goal-details-text", goal.details));
+
+  const actions = el("span", "goal-actions");
+  const edit = el("button", "link", "Edit");
+  const remove = el("button", "link danger", "Delete");
+  actions.append(edit, remove);
+
+  edit.addEventListener("click", () => {
+    const titleIn = el("input", "goal-edit-title");
+    titleIn.type = "text";
+    titleIn.maxLength = 200;
+    titleIn.value = goal.title;
+    const detailsIn = el("textarea", "note-input");
+    detailsIn.rows = 2;
+    detailsIn.value = goal.details;
+    const dueIn = el("input");
+    dueIn.type = "date";
+    if (goal.due_ms != null) dueIn.value = dueDateValue(goal.due_ms);
+    const save = el("button", "small", "Save");
+    const cancel = el("button", "link", "Cancel");
+    const buttons = el("div", "note-buttons");
+    const dueLabel = el("label", "goal-due-label");
+    dueLabel.append(document.createTextNode("By "), dueIn);
+    buttons.append(dueLabel, save, cancel);
+    const form = el("div", "goal-edit");
+    form.append(titleIn, detailsIn, buttons);
+    item.replaceChildren(form);
+    titleIn.focus();
+    save.addEventListener("click", async () => {
+      try {
+        Object.assign(goal, await invoke("update_goal", {
+          id: goal.id,
+          title: titleIn.value,
+          details: detailsIn.value,
+          dueMs: dueIn.value ? startOfDay(dueIn.value) : null,
+        }));
+        goalError.textContent = "";
+        renderGoals();
+      } catch (e) {
+        goalError.textContent = String(e);
+      }
+    });
+    cancel.addEventListener("click", renderGoals);
+  });
+
+  // A second click within a few seconds confirms.
+  remove.addEventListener("click", async () => {
+    if (!remove.classList.contains("confirm")) {
+      remove.classList.add("confirm");
+      remove.textContent = "Click again to delete";
+      setTimeout(() => {
+        remove.classList.remove("confirm");
+        remove.textContent = "Delete";
+      }, 3000);
+      return;
+    }
+    try {
+      await invoke("delete_goal", { id: goal.id });
+      goalRecords = goalRecords.filter((g) => g !== goal);
+      renderGoals();
+    } catch (e) {
+      goalError.textContent = String(e);
+    }
+  });
+
+  item.append(check, body, actions);
+  return item;
+}
+
+goalForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!goalTitle.value.trim()) return;
+  try {
+    const goal = await invoke("add_goal", {
+      title: goalTitle.value,
+      details: goalDetails.value,
+      dueMs: goalDue.value ? startOfDay(goalDue.value) : null,
+    });
+    goalRecords.unshift(goal);
+    goalTitle.value = "";
+    goalDetails.value = "";
+    goalDue.value = "";
+    goalError.textContent = "";
+    goalFilter = "active";
+    for (const b of document.querySelectorAll("[data-goals]")) b.classList.toggle("active", b.dataset.goals === "active");
+    loadGoals();
+  } catch (e) {
+    goalError.textContent = String(e);
+  }
 });
 
 // ---- Blocked sites ----

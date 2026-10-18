@@ -375,6 +375,65 @@ fn delete_note(id: i64, state: State<AppState>) -> Result<(), String> {
     db::delete_note(&state.db.lock().unwrap(), id).map_err(err)
 }
 
+#[tauri::command]
+fn get_goals(state: State<AppState>) -> Result<Vec<db::Goal>, String> {
+    db::goals(&state.db.lock().unwrap()).map_err(err)
+}
+
+fn goal_title(title: &str) -> Result<&str, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        Err("write a goal title first".into())
+    } else {
+        Ok(title)
+    }
+}
+
+#[tauri::command]
+fn add_goal(
+    title: String,
+    details: String,
+    due_ms: Option<i64>,
+    state: State<AppState>,
+) -> Result<db::Goal, String> {
+    db::add_goal(
+        &state.db.lock().unwrap(),
+        goal_title(&title)?,
+        details.trim(),
+        due_ms,
+        now_ms(),
+    )
+    .map_err(err)
+}
+
+#[tauri::command]
+fn update_goal(
+    id: i64,
+    title: String,
+    details: String,
+    due_ms: Option<i64>,
+    state: State<AppState>,
+) -> Result<db::Goal, String> {
+    db::update_goal(
+        &state.db.lock().unwrap(),
+        id,
+        goal_title(&title)?,
+        details.trim(),
+        due_ms,
+    )
+    .map_err(err)
+}
+
+#[tauri::command]
+fn set_goal_done(id: i64, done: bool, state: State<AppState>) -> Result<db::Goal, String> {
+    db::set_goal_done(&state.db.lock().unwrap(), id, done, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+fn delete_goal(id: i64, state: State<AppState>) -> Result<(), String> {
+    db::delete_goal(&state.db.lock().unwrap(), id).map_err(err)
+}
+
 /// Focus intervals that overlap [from_ms, to_ms), plus the live current activity clipped to it.
 #[tauri::command]
 fn activities(
@@ -686,6 +745,11 @@ pub fn run() {
             update_note,
             delete_note,
             activities,
+            get_goals,
+            add_goal,
+            update_goal,
+            set_goal_done,
+            delete_goal,
             get_blocking,
             add_blocked_site,
             remove_blocked_site,

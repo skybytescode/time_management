@@ -61,6 +61,16 @@ CREATE TABLE IF NOT EXISTS block_reasons (
     reason TEXT NOT NULL,
     opinion TEXT                  -- Claude's opinion; NULL when not stored
 );
+-- Long-term goals, independent of any session.
+CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '',
+    due_ms INTEGER,                      -- optional target date
+    done INTEGER NOT NULL DEFAULT 0,
+    created_ms INTEGER NOT NULL,
+    done_ms INTEGER                      -- when it was marked done
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -108,6 +118,17 @@ pub struct Activity {
 pub struct BlockedSite {
     pub domain: String,
     pub allowed: bool,
+}
+
+#[derive(Clone, Serialize)]
+pub struct Goal {
+    pub id: i64,
+    pub title: String,
+    pub details: String,
+    pub due_ms: Option<i64>,
+    pub done: bool,
+    pub created_ms: i64,
+    pub done_ms: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -492,6 +513,106 @@ pub fn add_block_reason(
         params![at_ms, session_id, kind, domain, reason, opinion],
     )?;
     Ok(())
+}
+
+const GOAL_COLUMNS: &str = "id, title, details, due_ms, done, created_ms, done_ms";
+
+fn goal_row(row: &rusqlite::Row) -> rusqlite::Result<Goal> {
+    Ok(Goal {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        details: row.get(2)?,
+        due_ms: row.get(3)?,
+        done: row.get::<_, i64>(4)? != 0,
+        created_ms: row.get(5)?,
+        done_ms: row.get(6)?,
+    })
+}
+
+/// Active goals first (nearest due date, then newest), then the done ones (most recent first).
+pub fn goals(db: &Db) -> rusqlite::Result<Vec<Goal>> {
+    db.prepare(&format!(
+        "SELECT {GOAL_COLUMNS} FROM goals
+         ORDER BY done, CASE WHEN done = 0 THEN COALESCE(due_ms, 1 << 62) END,
+                  CASE WHEN done = 0 THEN -created_ms ELSE -done_ms END"
+    ))?
+    .query_map([], goal_row)?
+    .collect()
+}
+
+pub fn add_goal(
+    db: &Db,
+    title: &str,
+    details: &str,
+    due_ms: Option<i64>,
+    now_ms: i64,
+) -> rusqlite::Result<Goal> {
+    db.execute(
+        "INSERT INTO goals (title, details, due_ms, created_ms) VALUES (?1, ?2, ?3, ?4)",
+        params![title, details, due_ms, now_ms],
+    )?;
+    db.query_row(
+        &format!("SELECT {GOAL_COLUMNS} FROM goals WHERE id = ?1"),
+        [db.last_insert_rowid()],
+        goal_row,
+    )
+}
+
+pub fn update_goal(
+    db: &Db,
+    id: i64,
+    title: &str,
+    details: &str,
+    due_ms: Option<i64>,
+) -> rusqlite::Result<Goal> {
+    db.execute(
+        "UPDATE goals SET title = ?2, details = ?3, due_ms = ?4 WHERE id = ?1",
+        params![id, title, details, due_ms],
+    )?;
+    db.query_row(
+        &format!("SELECT {GOAL_COLUMNS} FROM goals WHERE id = ?1"),
+        [id],
+        goal_row,
+    )
+}
+
+pub fn set_goal_done(db: &Db, id: i64, done: bool, now_ms: i64) -> rusqlite::Result<Goal> {
+    db.execute(
+        "UPDATE goals SET done = ?2, done_ms = ?3 WHERE id = ?1",
+        params![id, done as i64, if done { Some(now_ms) } else { None }],
+    )?;
+    db.query_row(
+        &format!("SELECT {GOAL_COLUMNS} FROM goals WHERE id = ?1"),
+        [id],
+        goal_row,
+    )
+}
+
+pub fn delete_goal(db: &Db, id: i64) -> rusqlite::Result<()> {
+    db.execute("DELETE FROM goals WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// Titles of active goals (with due date when set), for the assistant's context.
+pub fn active_goal_lines(db: &Db) -> rusqlite::Result<Vec<String>> {
+    db.prepare(
+        "SELECT title, due_ms FROM goals WHERE done = 0
+         ORDER BY COALESCE(due_ms, 1 << 62), -created_ms",
+    )?
+    .query_map([], |row| {
+        let title: String = row.get(0)?;
+        let due: Option<i64> = row.get(1)?;
+        Ok(match due {
+            Some(ms) => {
+                let date = chrono::DateTime::from_timestamp_millis(ms)
+                    .map(|t| t.with_timezone(&chrono::Local).format("%-d %b %Y").to_string())
+                    .unwrap_or_default();
+                format!("{title} (by {date})")
+            }
+            None => title,
+        })
+    })?
+    .collect()
 }
 
 #[cfg(test)]

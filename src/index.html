@@ -11,6 +11,7 @@
   <body>
     <nav class="tabs">
       <button class="tab active" type="button" data-view="session-view">Session</button>
+      <button class="tab" type="button" data-view="goals-view">Goals</button>
       <button class="tab" type="button" data-view="history-view">History</button>
       <button class="tab" type="button" data-view="activity-view">Activity</button>
       <button class="tab" type="button" data-view="blocked-view">Blocked</button>
@@ -118,6 +119,24 @@
           <h3>Notes</h3>
         </section>
       </aside>
+    </main>
+
+    <main id="goals-view" class="view goals-view" hidden>
+      <form id="goal-form" class="goal-form">
+        <input id="goal-title" type="text" maxlength="200" placeholder="A goal, e.g. Finish the time management app" />
+        <textarea id="goal-details" rows="2" placeholder="Details (optional)"></textarea>
+        <div class="goal-form-row">
+          <label>By <input id="goal-due" type="date" /></label>
+          <button class="small" type="submit">Add goal</button>
+        </div>
+      </form>
+      <p id="goal-error" class="note-error"></p>
+      <div class="subtabs">
+        <button type="button" data-goals="active" class="active">Active</button>
+        <button type="button" data-goals="done">Done</button>
+        <button type="button" data-goals="all">All</button>
+      </div>
+      <ul id="goal-list" class="goal-list"></ul>
     </main>
 
     <main id="history-view" class="view history-view" hidden>
