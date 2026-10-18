@@ -1365,3 +1365,10 @@ textarea {
   color: var(--accent);
   overflow-wrap: anywhere;
 }
+
+/* Objectives inputs can be dragged wider too, not only taller. */
+#objectives-input,
+#edit-objectives {
+  resize: both;
+  max-width: none;
+}
