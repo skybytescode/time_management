@@ -1325,3 +1325,43 @@ textarea {
   color: var(--muted);
   margin-right: auto;
 }
+
+.goal-select {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  color: var(--fg);
+  background-color: var(--surface);
+  color-scheme: light dark;
+}
+
+#session-goal {
+  width: 100%;
+}
+
+.session-goal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.session-goal-row .goal-select {
+  flex: 1;
+}
+
+.goal-progress {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.record-goal {
+  margin: -6px 0 8px;
+  font-size: 0.85rem;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}

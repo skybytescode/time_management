@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     planned_minutes INTEGER,
     start_ms INTEGER NOT NULL,
     end_ms INTEGER,                 -- NULL while running
-    last_seen_ms INTEGER NOT NULL   -- heartbeat, closes sessions cut short by a crash
+    last_seen_ms INTEGER NOT NULL,  -- heartbeat, closes sessions cut short by a crash
+    goal_id INTEGER REFERENCES goals(id) ON DELETE SET NULL  -- the goal it contributes to
 );
 CREATE TABLE IF NOT EXISTS breaks (
     id INTEGER PRIMARY KEY,
@@ -129,6 +130,9 @@ pub struct Goal {
     pub done: bool,
     pub created_ms: i64,
     pub done_ms: Option<i64>,
+    /// Worked time of finished sessions linked to this goal, and their count.
+    pub worked_ms: i64,
+    pub sessions: i64,
 }
 
 #[derive(Serialize)]
@@ -139,6 +143,8 @@ pub struct SessionRecord {
     pub planned_minutes: Option<i64>,
     pub start_ms: i64,
     pub end_ms: Option<i64>,
+    pub goal_id: Option<i64>,
+    pub goal_title: Option<String>,
     pub breaks: Vec<Interval>,
     pub messages: Vec<Message>,
     pub notes: Vec<Note>,
@@ -169,6 +175,13 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
         }
         set_setting(&db, "block_list_seeded", "1")?;
     }
+    // Databases from before sessions could be linked to a goal.
+    let has_goal = db
+        .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'goal_id'")?
+        .exists([])?;
+    if !has_goal {
+        db.execute_batch("ALTER TABLE sessions ADD COLUMN goal_id INTEGER REFERENCES goals(id)")?;
+    }
     // Databases from before per-site allowances existed.
     let has_allowed = db
         .prepare("SELECT 1 FROM pragma_table_info('blocked_sites') WHERE name = 'allowed'")?
@@ -196,14 +209,30 @@ pub fn create_session(
     task: &str,
     objectives: &str,
     planned_minutes: Option<u32>,
+    goal_id: Option<i64>,
     start_ms: i64,
 ) -> rusqlite::Result<i64> {
     db.execute(
-        "INSERT INTO sessions (task, objectives, planned_minutes, start_ms, last_seen_ms)
-         VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![task, objectives, planned_minutes, start_ms],
+        "INSERT INTO sessions (task, objectives, planned_minutes, goal_id, start_ms, last_seen_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![task, objectives, planned_minutes, goal_id, start_ms],
     )?;
     Ok(db.last_insert_rowid())
+}
+
+/// Links a session (running or finished) to a goal, or clears the link with `None`.
+pub fn set_session_goal(db: &Db, id: i64, goal_id: Option<i64>) -> rusqlite::Result<()> {
+    db.execute(
+        "UPDATE sessions SET goal_id = ?2 WHERE id = ?1",
+        params![id, goal_id],
+    )?;
+    Ok(())
+}
+
+/// The title of a goal, for showing which goal a session is linked to.
+pub fn goal_title(db: &Db, id: i64) -> rusqlite::Result<Option<String>> {
+    db.query_row("SELECT title FROM goals WHERE id = ?1", [id], |row| row.get(0))
+        .optional()
 }
 
 /// Changes the title and objectives of a running session; returns false if it has ended.
@@ -359,11 +388,13 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
     });
     let mut sessions: Vec<SessionRecord> = db
         .prepare(
-            "SELECT id, task, objectives, planned_minutes, start_ms, end_ms FROM sessions
-             WHERE (?1 IS NULL OR start_ms >= ?1) AND (?2 IS NULL OR start_ms < ?2)
-               AND (?3 IS NULL OR task LIKE ?3 ESCAPE '\\' OR objectives LIKE ?3 ESCAPE '\\' OR EXISTS
-                    (SELECT 1 FROM notes WHERE session_id = sessions.id AND text LIKE ?3 ESCAPE '\\'))
-             ORDER BY start_ms DESC",
+            "SELECT s.id, s.task, s.objectives, s.planned_minutes, s.start_ms, s.end_ms,
+                    s.goal_id, g.title
+             FROM sessions s LEFT JOIN goals g ON g.id = s.goal_id
+             WHERE (?1 IS NULL OR s.start_ms >= ?1) AND (?2 IS NULL OR s.start_ms < ?2)
+               AND (?3 IS NULL OR s.task LIKE ?3 ESCAPE '\\' OR s.objectives LIKE ?3 ESCAPE '\\' OR EXISTS
+                    (SELECT 1 FROM notes WHERE session_id = s.id AND text LIKE ?3 ESCAPE '\\'))
+             ORDER BY s.start_ms DESC",
         )?
         .query_map(params![filter.from_ms, filter.to_ms, pattern], |row| {
             Ok(SessionRecord {
@@ -373,6 +404,8 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
                 planned_minutes: row.get(3)?,
                 start_ms: row.get(4)?,
                 end_ms: row.get(5)?,
+                goal_id: row.get(6)?,
+                goal_title: row.get(7)?,
                 breaks: Vec::new(),
                 messages: Vec::new(),
                 notes: Vec::new(),
@@ -526,17 +559,41 @@ fn goal_row(row: &rusqlite::Row) -> rusqlite::Result<Goal> {
         done: row.get::<_, i64>(4)? != 0,
         created_ms: row.get(5)?,
         done_ms: row.get(6)?,
+        worked_ms: 0,
+        sessions: 0,
     })
 }
 
-/// Active goals first (nearest due date, then newest), then the done ones (most recent first).
+/// Active goals first (nearest due date, then newest), then the done ones (most recent first),
+/// each with the worked time and count of the finished sessions linked to it.
 pub fn goals(db: &Db) -> rusqlite::Result<Vec<Goal>> {
-    db.prepare(&format!(
-        "SELECT {GOAL_COLUMNS} FROM goals
-         ORDER BY done, CASE WHEN done = 0 THEN COALESCE(due_ms, 1 << 62) END,
-                  CASE WHEN done = 0 THEN -created_ms ELSE -done_ms END"
-    ))?
-    .query_map([], goal_row)?
+    db.prepare(
+        "SELECT g.id, g.title, g.details, g.due_ms, g.done, g.created_ms, g.done_ms,
+                COALESCE(SUM(p.worked), 0), COUNT(p.id)
+         FROM goals g
+         LEFT JOIN (
+             SELECT id, goal_id,
+                    end_ms - start_ms
+                    - COALESCE((SELECT SUM(end_ms - start_ms) FROM breaks WHERE session_id = sessions.id), 0) AS worked
+             FROM sessions WHERE end_ms IS NOT NULL AND goal_id IS NOT NULL
+         ) p ON p.goal_id = g.id
+         GROUP BY g.id
+         ORDER BY g.done, CASE WHEN g.done = 0 THEN COALESCE(g.due_ms, 1 << 62) END,
+                  CASE WHEN g.done = 0 THEN -g.created_ms ELSE -g.done_ms END",
+    )?
+    .query_map([], |row| {
+        Ok(Goal {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            details: row.get(2)?,
+            due_ms: row.get(3)?,
+            done: row.get::<_, i64>(4)? != 0,
+            created_ms: row.get(5)?,
+            done_ms: row.get(6)?,
+            worked_ms: row.get(7)?,
+            sessions: row.get(8)?,
+        })
+    })?
     .collect()
 }
 
@@ -644,8 +701,8 @@ mod tests {
     #[test]
     fn notes_belong_to_their_session_and_are_searchable() {
         let db = open(Path::new(":memory:")).unwrap();
-        let first = create_session(&db, "Write report", "", None, 1_000).unwrap();
-        let second = create_session(&db, "Fix login bug", "", Some(25), 2_000).unwrap();
+        let first = create_session(&db, "Write report", "", None, None, 1_000).unwrap();
+        let second = create_session(&db, "Fix login bug", "", Some(25), None, 2_000).unwrap();
 
         let note = add_note(&db, first, "ask Ion about the 100% figure", 1_500).unwrap();
         add_note(&db, second, "token expires too early", 2_500).unwrap();
@@ -677,7 +734,7 @@ mod tests {
     #[test]
     fn title_and_objectives_are_editable_only_while_running() {
         let db = open(Path::new(":memory:")).unwrap();
-        let id = create_session(&db, "Report", "draft intro", None, 1_000).unwrap();
+        let id = create_session(&db, "Report", "draft intro", None, None, 1_000).unwrap();
         assert!(
             update_session_info(&db, id, "Quarterly report", "draft intro and summary").unwrap()
         );

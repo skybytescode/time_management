@@ -30,6 +30,9 @@ pub struct Session {
     /// The session's title.
     task: String,
     objectives: String,
+    /// The goal this session contributes to, if any.
+    goal_id: Option<i64>,
+    goal_title: Option<String>,
     start_ms: i64,
     /// Set for timed sessions.
     end_ms: Option<i64>,
@@ -223,6 +226,7 @@ fn start_session(
     task: String,
     objectives: String,
     minutes: Option<u32>,
+    goal_id: Option<i64>,
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<Session, String> {
@@ -237,18 +241,18 @@ fn start_session(
     }
 
     let start_ms = now_ms();
-    let id = db::create_session(
-        &state.db.lock().unwrap(),
-        &task,
-        &objectives,
-        minutes,
-        start_ms,
-    )
-    .map_err(err)?;
+    let (id, goal_title) = {
+        let db = state.db.lock().unwrap();
+        let id = db::create_session(&db, &task, &objectives, minutes, goal_id, start_ms).map_err(err)?;
+        let title = goal_id.and_then(|g| db::goal_title(&db, g).ok().flatten());
+        (id, title)
+    };
     let session = Session {
         id,
         task,
         objectives,
+        goal_id,
+        goal_title,
         start_ms,
         end_ms: minutes.map(|m| start_ms + i64::from(m) * MINUTE_MS),
         block_error: apply_block(&state).err(),
@@ -295,6 +299,18 @@ fn update_session_info(
     }
     session.task = task;
     session.objectives = objectives;
+    Ok(session.clone())
+}
+
+/// Links the running session to a goal, or clears the link with `None`.
+#[tauri::command]
+fn set_session_goal(goal_id: Option<i64>, state: State<AppState>) -> Result<Session, String> {
+    let mut current = state.session.lock().unwrap();
+    let session = current.as_mut().ok_or("no session is running")?;
+    let db = state.db.lock().unwrap();
+    db::set_session_goal(&db, session.id, goal_id).map_err(err)?;
+    session.goal_id = goal_id;
+    session.goal_title = goal_id.and_then(|g| db::goal_title(&db, g).ok().flatten());
     Ok(session.clone())
 }
 
@@ -750,6 +766,7 @@ pub fn run() {
             update_goal,
             set_goal_done,
             delete_goal,
+            set_session_goal,
             get_blocking,
             add_blocked_site,
             remove_blocked_site,

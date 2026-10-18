@@ -34,6 +34,7 @@
       <section class="column center">
         <div id="setup" class="setup">
           <input id="task" class="task" type="text" maxlength="200" placeholder="Session title: what are you working on?" />
+          <select id="session-goal" class="goal-select"></select>
           <div class="setup-row">
             <div class="modes" role="radiogroup">
               <label><input type="radio" name="mode" value="open" checked /> Open</label>
@@ -104,6 +105,10 @@
           <div id="objectives-view" class="objectives-view" hidden>
             <p id="objectives-title" class="objectives-title"></p>
             <p id="objectives-text" class="objectives-text"></p>
+          </div>
+          <div id="session-goal-row" class="session-goal-row" hidden>
+            <span class="label">Goal</span>
+            <select id="running-goal" class="goal-select"></select>
           </div>
           <div id="objectives-form" class="notes" hidden>
             <input id="edit-title" type="text" maxlength="200" placeholder="Session title" />

@@ -35,6 +35,8 @@ const status = $("status");
 const feed = $("feed");
 const currentNotes = $("current-notes");
 const sessionTotals = $("session-totals");
+const sessionGoal = $("session-goal");
+const runningGoal = $("running-goal");
 
 let minutes = 25;
 let session = null; // see `Session` in lib.rs
@@ -377,6 +379,28 @@ async function showCurrentNotes() {
   }
 }
 
+function optionEl(value, label, selected) {
+  const opt = el("option", null, label);
+  opt.value = value;
+  if (selected) opt.selected = true;
+  return opt;
+}
+
+// Fills a goal <select> with "No goal" plus active goals (and the chosen one even if done).
+async function fillGoalSelect(select, selectedId) {
+  let goals = [];
+  try {
+    goals = await invoke("get_goals");
+  } catch (e) {
+    /* leave just "No goal" */
+  }
+  const choices = goals.filter((g) => !g.done || g.id === selectedId);
+  select.replaceChildren(
+    optionEl("", "No goal", selectedId == null),
+    ...choices.map((g) => optionEl(String(g.id), g.title, g.id === selectedId)),
+  );
+}
+
 function render() {
   const active = session !== null;
   toggle.textContent = active ? "Stop" : "Start";
@@ -387,6 +411,9 @@ function render() {
   setter.hidden = !timed();
   currentTask.hidden = !active;
   currentTask.textContent = session?.task ?? "";
+  $("session-goal-row").hidden = !active;
+  if (active) fillGoalSelect(runningGoal, session.goal_id ?? null);
+  else fillGoalSelect(sessionGoal, null);
   times.hidden = !active;
   sessionTotals.hidden = !active;
   minutesInput.value = minutes;
@@ -419,6 +446,7 @@ toggle.addEventListener("click", async () => {
         task: taskInput.value,
         objectives: objectivesInput.value,
         minutes: timed() ? minutes : null,
+        goalId: sessionGoal.value ? Number(sessionGoal.value) : null,
       });
       messages = [];
       renderFeed();
@@ -447,6 +475,14 @@ breakButton.addEventListener("click", async () => {
   loadToday();
 });
 
+runningGoal.addEventListener("change", async () => {
+  try {
+    session = await invoke("set_session_goal", { goalId: runningGoal.value ? Number(runningGoal.value) : null });
+  } catch (e) {
+    status.textContent = String(e);
+  }
+});
+
 listen("session-finished", () => {
   session = null;
   showCurrentNotes();
@@ -471,6 +507,7 @@ function showView(view) {
     $(tab.dataset.view).hidden = tab.dataset.view !== view;
   }
   if (view === "history-view") refreshHistory();
+  if (view === "session-view" && !session) fillGoalSelect(sessionGoal, null);
   if (view === "goals-view") loadGoals();
   if (view === "activity-view") loadActivity();
   if (view === "blocked-view") loadBlocking();
@@ -587,6 +624,7 @@ function sessionItem(record, worked, now) {
   ask.addEventListener("click", () => askAbout(record));
   taskRow.append(el("p", "record-task", record.task), ask);
   main.append(head, taskRow);
+  if (record.goal_title) main.append(el("p", "record-goal", `Goal: ${record.goal_title}`));
   if (record.objectives) main.append(el("p", "record-objectives", record.objectives));
 
   // Work in gold, breaks in grey, and a dot for each thing the assistant said.
