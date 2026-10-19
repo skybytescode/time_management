@@ -10,43 +10,44 @@
 
   <body>
     <nav class="tabs">
-      <button class="tab active" type="button" data-view="session-view">Session</button>
-      <button class="tab" type="button" data-view="goals-view">Goals</button>
-      <button class="tab" type="button" data-view="history-view">History</button>
-      <button class="tab" type="button" data-view="activity-view">Activity</button>
-      <button class="tab" type="button" data-view="blocked-view">Blocked</button>
-      <button class="tab" type="button" data-view="ask-view">Ask</button>
+      <button class="tab active" type="button" data-view="session-view" data-i18n="tab_session">Session</button>
+      <button class="tab" type="button" data-view="goals-view" data-i18n="tab_goals">Goals</button>
+      <button class="tab" type="button" data-view="history-view" data-i18n="tab_history">History</button>
+      <button class="tab" type="button" data-view="activity-view" data-i18n="tab_activity">Activity</button>
+      <button class="tab" type="button" data-view="blocked-view" data-i18n="tab_blocked">Blocked</button>
+      <button class="tab" type="button" data-view="ask-view" data-i18n="tab_ask">Ask</button>
+      <button id="lang-toggle" class="lang-toggle" type="button" title="Switch language">RO</button>
     </nav>
 
     <main id="session-view" class="view session-view">
       <aside class="column today">
-        <h3>Today</h3>
+        <h3 data-i18n="today">Today</h3>
         <div class="day-totals">
-          <div><span class="label">Worked</span><span id="today-worked" class="value">0m</span></div>
-          <div><span class="label">Breaks</span><span id="today-breaks" class="value">0m</span></div>
+          <div><span class="label" data-i18n="worked">Worked</span><span id="today-worked" class="value">0m</span></div>
+          <div><span class="label" data-i18n="breaks">Breaks</span><span id="today-breaks" class="value">0m</span></div>
         </div>
         <ul id="today-sessions" class="today-sessions"></ul>
         <div class="day-totals">
-          <div><span class="label">Total</span><span id="today-total" class="value">0m</span></div>
+          <div><span class="label" data-i18n="total">Total</span><span id="today-total" class="value">0m</span></div>
         </div>
       </aside>
 
       <section class="column center">
         <div id="setup" class="setup">
-          <input id="task" class="task" type="text" maxlength="200" placeholder="Session title: what are you working on?" />
+          <input id="task" class="task" type="text" maxlength="200" data-i18n-ph="task_ph" placeholder="Session title: what are you working on?" />
           <select id="session-goal" class="goal-select"></select>
           <div class="setup-row">
             <div class="modes" role="radiogroup">
-              <label><input type="radio" name="mode" value="open" checked /> Open</label>
-              <label><input type="radio" name="mode" value="timed" /> Timer</label>
+              <label><input type="radio" name="mode" value="open" checked /> <span data-i18n="mode_open">Open</span></label>
+              <label><input type="radio" name="mode" value="timed" /> <span data-i18n="mode_timed">Timer</span></label>
             </div>
             <div id="setter" class="setter" hidden>
-              <button id="minus" class="step" type="button" aria-label="Remove minutes">−</button>
+              <button id="minus" class="step" type="button" data-i18n-aria="minus_aria" aria-label="Remove minutes">−</button>
               <label class="minutes">
                 <input id="minutes" type="number" min="1" max="240" value="25" />
-                <span>min</span>
+                <span data-i18n="min">min</span>
               </label>
-              <button id="plus" class="step" type="button" aria-label="Add minutes">+</button>
+              <button id="plus" class="step" type="button" data-i18n-aria="plus_aria" aria-label="Add minutes">+</button>
             </div>
           </div>
         </div>
@@ -78,13 +79,13 @@
         <p id="remaining" class="remaining">0:00</p>
         <p id="times" class="times" hidden></p>
         <div id="session-totals" class="day-totals session-totals" hidden>
-          <div><span class="label">Worked</span><span id="session-worked" class="value"></span></div>
-          <div><span class="label">Breaks</span><span id="session-breaks" class="value"></span></div>
-          <div><span class="label">Total</span><span id="session-total" class="value"></span></div>
+          <div><span class="label" data-i18n="worked">Worked</span><span id="session-worked" class="value"></span></div>
+          <div><span class="label" data-i18n="breaks">Breaks</span><span id="session-breaks" class="value"></span></div>
+          <div><span class="label" data-i18n="total">Total</span><span id="session-total" class="value"></span></div>
         </div>
         <div class="controls">
-          <button id="toggle" class="toggle" type="button">Start</button>
-          <button id="break" class="secondary" type="button" hidden>Break</button>
+          <button id="toggle" class="toggle" type="button" data-i18n="start">Start</button>
+          <button id="break" class="secondary" type="button" data-i18n="break" hidden>Break</button>
         </div>
         <p id="status" class="status"></p>
         <section class="panel">
@@ -95,73 +96,73 @@
       <aside class="column side">
         <section class="panel objectives">
           <div class="panel-head">
-            <h3>Objectives</h3>
+            <h3 data-i18n="objectives">Objectives</h3>
             <span id="objectives-actions" class="note-actions" hidden>
-              <button id="objectives-edit" class="link" type="button">Edit</button>
-              <button id="objectives-delete" class="link danger" type="button">Delete</button>
+              <button id="objectives-edit" class="link" type="button" data-i18n="edit">Edit</button>
+              <button id="objectives-delete" class="link danger" type="button" data-i18n="delete">Delete</button>
             </span>
           </div>
-          <textarea id="objectives-input" rows="5" placeholder="What should this session achieve?"></textarea>
+          <textarea id="objectives-input" rows="5" data-i18n-ph="objectives_ph" placeholder="What should this session achieve?"></textarea>
           <div id="objectives-view" class="objectives-view" hidden>
             <p id="objectives-title" class="objectives-title"></p>
             <p id="objectives-text" class="objectives-text"></p>
           </div>
           <div id="session-goal-row" class="session-goal-row" hidden>
-            <span class="label">Goal</span>
+            <span class="label" data-i18n="goal">Goal</span>
             <select id="running-goal" class="goal-select"></select>
           </div>
           <div id="objectives-form" class="notes" hidden>
-            <input id="edit-title" type="text" maxlength="200" placeholder="Session title" />
-            <textarea id="edit-objectives" rows="5" placeholder="Objectives"></textarea>
+            <input id="edit-title" type="text" maxlength="200" data-i18n-ph="edit_title_ph" placeholder="Session title" />
+            <textarea id="edit-objectives" rows="5" data-i18n-ph="objectives_word" placeholder="Objectives"></textarea>
             <div class="note-buttons">
-              <button id="objectives-save" class="small" type="button">Save</button>
-              <button id="objectives-cancel" class="link" type="button">Cancel</button>
+              <button id="objectives-save" class="small" type="button" data-i18n="save">Save</button>
+              <button id="objectives-cancel" class="link" type="button" data-i18n="cancel">Cancel</button>
             </div>
           </div>
           <p id="objectives-error" class="note-error"></p>
         </section>
         <section id="current-notes" class="panel" hidden>
-          <h3>Notes</h3>
+          <h3 data-i18n="notes">Notes</h3>
         </section>
       </aside>
     </main>
 
     <main id="goals-view" class="view goals-view" hidden>
       <form id="goal-form" class="goal-form">
-        <input id="goal-title" type="text" maxlength="200" placeholder="A goal, e.g. Finish the time management app" />
-        <textarea id="goal-details" rows="2" placeholder="Details (optional)"></textarea>
+        <input id="goal-title" type="text" maxlength="200" data-i18n-ph="goal_title_ph" placeholder="A goal, e.g. Finish the time management app" />
+        <textarea id="goal-details" rows="2" data-i18n-ph="goal_details_ph" placeholder="Details (optional)"></textarea>
         <div class="goal-form-row">
-          <label>By <input id="goal-due" type="date" /></label>
-          <button class="small" type="submit">Add goal</button>
+          <label><span data-i18n="by">By</span> <input id="goal-due" type="date" /></label>
+          <button class="small" type="submit" data-i18n="add_goal">Add goal</button>
         </div>
       </form>
       <p id="goal-error" class="note-error"></p>
       <div class="subtabs">
-        <button type="button" data-goals="active" class="active">Active</button>
-        <button type="button" data-goals="done">Done</button>
-        <button type="button" data-goals="all">All</button>
+        <button type="button" data-goals="active" class="active" data-i18n="goals_active">Active</button>
+        <button type="button" data-goals="done" data-i18n="goals_done">Done</button>
+        <button type="button" data-goals="all" data-i18n="goals_all">All</button>
       </div>
       <ul id="goal-list" class="goal-list"></ul>
     </main>
 
     <main id="history-view" class="view history-view" hidden>
       <div class="subtabs">
-        <button type="button" data-history="history-list" class="active">List</button>
-        <button type="button" data-history="history-calendar">Calendar</button>
+        <button type="button" data-history="history-list" class="active" data-i18n="hist_list">List</button>
+        <button type="button" data-history="history-calendar" data-i18n="hist_calendar">Calendar</button>
       </div>
 
       <div id="history-list" class="history-list">
         <div class="filters">
           <div class="ranges">
-            <button type="button" data-range="today">Today</button>
-            <button type="button" data-range="week" class="active">7 days</button>
-            <button type="button" data-range="month">30 days</button>
-            <button type="button" data-range="all">All</button>
+            <button type="button" data-range="today" data-i18n="range_today">Today</button>
+            <button type="button" data-range="week" class="active" data-i18n="range_week">7 days</button>
+            <button type="button" data-range="month" data-i18n="range_month">30 days</button>
+            <button type="button" data-range="all" data-i18n="range_all">All</button>
           </div>
           <div class="filter-row">
-            <label>From <input id="from" type="date" /></label>
-            <label>To <input id="to" type="date" /></label>
-            <input id="search" type="search" placeholder="Search titles, objectives and notes" />
+            <label><span data-i18n="from">From</span> <input id="from" type="date" /></label>
+            <label><span data-i18n="to">To</span> <input id="to" type="date" /></label>
+            <input id="search" type="search" data-i18n-ph="search_ph" placeholder="Search titles, objectives and notes" />
           </div>
         </div>
         <p id="summary" class="summary"></p>
@@ -170,14 +171,18 @@
 
       <div id="history-calendar" class="history-calendar" hidden>
         <div class="calendar-head">
-          <button id="month-prev" class="step" type="button" aria-label="Previous month">‹</button>
+          <button id="month-prev" class="step" type="button" data-i18n-aria="prev_month_aria" aria-label="Previous month">‹</button>
           <h3 id="month-label"></h3>
-          <button id="month-next" class="step" type="button" aria-label="Next month">›</button>
+          <button id="month-next" class="step" type="button" data-i18n-aria="next_month_aria" aria-label="Next month">›</button>
           <span id="month-totals" class="month-totals"></span>
         </div>
         <table class="calendar">
           <thead>
-            <tr><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th></tr>
+            <tr>
+              <th data-i18n="cal_mon">Mon</th><th data-i18n="cal_tue">Tue</th><th data-i18n="cal_wed">Wed</th>
+              <th data-i18n="cal_thu">Thu</th><th data-i18n="cal_fri">Fri</th><th data-i18n="cal_sat">Sat</th>
+              <th data-i18n="cal_sun">Sun</th>
+            </tr>
           </thead>
           <tbody id="calendar-body"></tbody>
         </table>
@@ -186,35 +191,35 @@
 
     <main id="activity-view" class="view activity-view" hidden>
       <div class="calendar-head">
-        <button id="act-prev" class="step" type="button" aria-label="Previous day">‹</button>
+        <button id="act-prev" class="step" type="button" data-i18n-aria="prev_day_aria" aria-label="Previous day">‹</button>
         <h3 id="act-label"></h3>
-        <button id="act-next" class="step" type="button" aria-label="Next day">›</button>
+        <button id="act-next" class="step" type="button" data-i18n-aria="next_day_aria" aria-label="Next day">›</button>
         <span id="act-total" class="month-totals"></span>
       </div>
       <p id="act-current" class="act-current"></p>
       <ul id="act-apps" class="act-apps"></ul>
-      <h4 class="act-heading">Timeline</h4>
+      <h4 class="act-heading" data-i18n="timeline">Timeline</h4>
       <ul id="act-timeline" class="act-timeline"></ul>
     </main>
 
     <main id="blocked-view" class="view blocked-view" hidden>
       <label class="always-row">
         <input id="always-block" type="checkbox" />
-        <span>Block these sites whenever the app is running</span>
+        <span data-i18n="always_block_label">Block these sites whenever the app is running</span>
       </label>
       <p id="block-status" class="block-status"></p>
       <div id="reason-box" class="reason-box" hidden>
         <p id="reason-prompt" class="reason-prompt"></p>
-        <textarea id="reason-input" rows="3" placeholder="Why do you need this? (Ctrl+Enter)"></textarea>
+        <textarea id="reason-input" rows="3" data-i18n-ph="reason_ph" placeholder="Why do you need this? (Ctrl+Enter)"></textarea>
         <div class="note-buttons">
-          <button id="reason-confirm" class="small" type="button">Confirm</button>
-          <button id="reason-cancel" class="link" type="button">Cancel</button>
+          <button id="reason-confirm" class="small" type="button" data-i18n="confirm">Confirm</button>
+          <button id="reason-cancel" class="link" type="button" data-i18n="cancel">Cancel</button>
         </div>
       </div>
       <p id="block-opinion" class="block-opinion"></p>
       <form id="add-site-form" class="add-site">
-        <input id="site-input" type="text" placeholder="Add a site, e.g. reddit.com" />
-        <button class="small" type="submit">Add</button>
+        <input id="site-input" type="text" data-i18n-ph="site_ph" placeholder="Add a site, e.g. reddit.com" />
+        <button class="small" type="submit" data-i18n="add">Add</button>
       </form>
       <p id="block-error" class="note-error"></p>
       <ul id="site-list" class="site-list"></ul>
@@ -223,13 +228,13 @@
     <main id="ask-view" class="view ask-view" hidden>
       <div class="ask-scope">
         <span id="scope-label" class="scope-label"></span>
-        <button id="scope-all" class="link" type="button" hidden>Ask about all sessions</button>
-        <button id="new-chat" class="link" type="button">New chat</button>
+        <button id="scope-all" class="link" type="button" data-i18n="ask_all_btn" hidden>Ask about all sessions</button>
+        <button id="new-chat" class="link" type="button" data-i18n="new_chat">New chat</button>
       </div>
       <ul id="chat" class="chat"></ul>
       <form id="ask-form" class="ask-form">
-        <textarea id="question" rows="3" placeholder="Ask Claude about your sessions and notes… (Ctrl+Enter)"></textarea>
-        <button id="ask" class="toggle" type="submit">Ask</button>
+        <textarea id="question" rows="3" data-i18n-ph="question_ph" placeholder="Ask Claude about your sessions and notes… (Ctrl+Enter)"></textarea>
+        <button id="ask" class="toggle" type="submit" data-i18n="ask_btn">Ask</button>
       </form>
     </main>
   </body>

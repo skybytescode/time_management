@@ -60,6 +60,21 @@ body {
   background-color: var(--surface);
 }
 
+/* A small EN/RO switch at the end of the tab bar. */
+.lang-toggle {
+  min-width: 2.2em;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  background: none;
+  font-weight: 600;
+}
+
+.lang-toggle:hover {
+  color: var(--fg);
+}
+
 .view {
   box-sizing: border-box;
   max-width: 560px;

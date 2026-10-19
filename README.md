@@ -4,6 +4,9 @@ A desktop app for time management: to-do lists, work sessions and more.
 
 Built with [Tauri 2](https://tauri.app) (Rust backend) and a vanilla HTML/CSS/JS frontend.
 
+The interface can be read in **English or Romanian**: the **EN/RO** button at the end of the tab
+bar switches every label, message and date between the two, and the choice is remembered.
+
 ## Development
 
 Prerequisites: Rust, Node.js and the [Tauri system dependencies](https://tauri.app/start/prerequisites/).
