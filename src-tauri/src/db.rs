@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- A session can contribute to several goals, and a goal to several sessions.
+CREATE TABLE IF NOT EXISTS session_goals (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    goal_id INTEGER NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+    PRIMARY KEY (session_id, goal_id)
+);
+CREATE INDEX IF NOT EXISTS session_goals_goal ON session_goals(goal_id);
 CREATE INDEX IF NOT EXISTS sessions_start ON sessions(start_ms);
 CREATE INDEX IF NOT EXISTS breaks_session ON breaks(session_id);
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id);
@@ -135,6 +142,13 @@ pub struct Goal {
     pub sessions: i64,
 }
 
+/// A goal a session is linked to: just enough to show and change the link.
+#[derive(Clone, Serialize)]
+pub struct GoalRef {
+    pub id: i64,
+    pub title: String,
+}
+
 #[derive(Serialize)]
 pub struct SessionRecord {
     pub id: i64,
@@ -143,8 +157,7 @@ pub struct SessionRecord {
     pub planned_minutes: Option<i64>,
     pub start_ms: i64,
     pub end_ms: Option<i64>,
-    pub goal_id: Option<i64>,
-    pub goal_title: Option<String>,
+    pub goals: Vec<GoalRef>,
     pub breaks: Vec<Interval>,
     pub messages: Vec<Message>,
     pub notes: Vec<Note>,
@@ -182,6 +195,15 @@ pub fn open(path: &Path) -> rusqlite::Result<Db> {
     if !has_goal {
         db.execute_batch("ALTER TABLE sessions ADD COLUMN goal_id INTEGER REFERENCES goals(id)")?;
     }
+    // Databases from before a session could link to several goals: move the single goal_id into
+    // the join table, once. After that session_goals is the source of truth and goal_id is unused.
+    if get_setting(&db, "session_goals_migrated")?.is_none() {
+        db.execute_batch(
+            "INSERT OR IGNORE INTO session_goals (session_id, goal_id)
+             SELECT id, goal_id FROM sessions WHERE goal_id IS NOT NULL;",
+        )?;
+        set_setting(&db, "session_goals_migrated", "1")?;
+    }
     // Databases from before per-site allowances existed.
     let has_allowed = db
         .prepare("SELECT 1 FROM pragma_table_info('blocked_sites') WHERE name = 'allowed'")?
@@ -209,30 +231,43 @@ pub fn create_session(
     task: &str,
     objectives: &str,
     planned_minutes: Option<u32>,
-    goal_id: Option<i64>,
+    goal_ids: &[i64],
     start_ms: i64,
 ) -> rusqlite::Result<i64> {
     db.execute(
-        "INSERT INTO sessions (task, objectives, planned_minutes, goal_id, start_ms, last_seen_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-        params![task, objectives, planned_minutes, goal_id, start_ms],
+        "INSERT INTO sessions (task, objectives, planned_minutes, start_ms, last_seen_ms)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![task, objectives, planned_minutes, start_ms],
     )?;
-    Ok(db.last_insert_rowid())
+    let id = db.last_insert_rowid();
+    set_session_goals(db, id, goal_ids)?;
+    Ok(id)
 }
 
-/// Links a session (running or finished) to a goal, or clears the link with `None`.
-pub fn set_session_goal(db: &Db, id: i64, goal_id: Option<i64>) -> rusqlite::Result<()> {
-    db.execute(
-        "UPDATE sessions SET goal_id = ?2 WHERE id = ?1",
-        params![id, goal_id],
-    )?;
+/// Links a session (running or finished) to exactly the given goals, replacing any earlier links.
+pub fn set_session_goals(db: &Db, id: i64, goal_ids: &[i64]) -> rusqlite::Result<()> {
+    db.execute("DELETE FROM session_goals WHERE session_id = ?1", [id])?;
+    let mut stmt =
+        db.prepare("INSERT OR IGNORE INTO session_goals (session_id, goal_id) VALUES (?1, ?2)")?;
+    for &goal_id in goal_ids {
+        stmt.execute(params![id, goal_id])?;
+    }
     Ok(())
 }
 
-/// The title of a goal, for showing which goal a session is linked to.
-pub fn goal_title(db: &Db, id: i64) -> rusqlite::Result<Option<String>> {
-    db.query_row("SELECT title FROM goals WHERE id = ?1", [id], |row| row.get(0))
-        .optional()
+/// The goals a session is linked to, by title.
+pub fn session_goal_refs(db: &Db, id: i64) -> rusqlite::Result<Vec<GoalRef>> {
+    db.prepare(
+        "SELECT g.id, g.title FROM session_goals sg JOIN goals g ON g.id = sg.goal_id
+         WHERE sg.session_id = ?1 ORDER BY g.title",
+    )?
+    .query_map([id], |row| {
+        Ok(GoalRef {
+            id: row.get(0)?,
+            title: row.get(1)?,
+        })
+    })?
+    .collect()
 }
 
 /// Changes the title and objectives of a running session; returns false if it has ended.
@@ -388,9 +423,8 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
     });
     let mut sessions: Vec<SessionRecord> = db
         .prepare(
-            "SELECT s.id, s.task, s.objectives, s.planned_minutes, s.start_ms, s.end_ms,
-                    s.goal_id, g.title
-             FROM sessions s LEFT JOIN goals g ON g.id = s.goal_id
+            "SELECT s.id, s.task, s.objectives, s.planned_minutes, s.start_ms, s.end_ms
+             FROM sessions s
              WHERE (?1 IS NULL OR s.start_ms >= ?1) AND (?2 IS NULL OR s.start_ms < ?2)
                AND (?3 IS NULL OR s.task LIKE ?3 ESCAPE '\\' OR s.objectives LIKE ?3 ESCAPE '\\' OR EXISTS
                     (SELECT 1 FROM notes WHERE session_id = s.id AND text LIKE ?3 ESCAPE '\\'))
@@ -404,8 +438,7 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
                 planned_minutes: row.get(3)?,
                 start_ms: row.get(4)?,
                 end_ms: row.get(5)?,
-                goal_id: row.get(6)?,
-                goal_title: row.get(7)?,
+                goals: Vec::new(),
                 breaks: Vec::new(),
                 messages: Vec::new(),
                 notes: Vec::new(),
@@ -413,6 +446,7 @@ pub fn history(db: &Db, filter: &HistoryFilter) -> rusqlite::Result<Vec<SessionR
         })?
         .collect::<rusqlite::Result<_>>()?;
     for session in &mut sessions {
+        session.goals = session_goal_refs(db, session.id)?;
         session.breaks = session_breaks(db, session.id)?;
         session.messages = session_messages(db, session.id)?;
         session.notes = session_notes(db, session.id)?;
@@ -572,10 +606,11 @@ pub fn goals(db: &Db) -> rusqlite::Result<Vec<Goal>> {
                 COALESCE(SUM(p.worked), 0), COUNT(p.id)
          FROM goals g
          LEFT JOIN (
-             SELECT id, goal_id,
-                    end_ms - start_ms
-                    - COALESCE((SELECT SUM(end_ms - start_ms) FROM breaks WHERE session_id = sessions.id), 0) AS worked
-             FROM sessions WHERE end_ms IS NOT NULL AND goal_id IS NOT NULL
+             SELECT sg.goal_id AS goal_id, s.id AS id,
+                    s.end_ms - s.start_ms
+                    - COALESCE((SELECT SUM(end_ms - start_ms) FROM breaks WHERE session_id = s.id), 0) AS worked
+             FROM session_goals sg JOIN sessions s ON s.id = sg.session_id
+             WHERE s.end_ms IS NOT NULL
          ) p ON p.goal_id = g.id
          GROUP BY g.id
          ORDER BY g.done, CASE WHEN g.done = 0 THEN COALESCE(g.due_ms, 1 << 62) END,
@@ -701,8 +736,8 @@ mod tests {
     #[test]
     fn notes_belong_to_their_session_and_are_searchable() {
         let db = open(Path::new(":memory:")).unwrap();
-        let first = create_session(&db, "Write report", "", None, None, 1_000).unwrap();
-        let second = create_session(&db, "Fix login bug", "", Some(25), None, 2_000).unwrap();
+        let first = create_session(&db, "Write report", "", None, &[], 1_000).unwrap();
+        let second = create_session(&db, "Fix login bug", "", Some(25), &[], 2_000).unwrap();
 
         let note = add_note(&db, first, "ask Ion about the 100% figure", 1_500).unwrap();
         add_note(&db, second, "token expires too early", 2_500).unwrap();
@@ -734,7 +769,7 @@ mod tests {
     #[test]
     fn title_and_objectives_are_editable_only_while_running() {
         let db = open(Path::new(":memory:")).unwrap();
-        let id = create_session(&db, "Report", "draft intro", None, None, 1_000).unwrap();
+        let id = create_session(&db, "Report", "draft intro", None, &[], 1_000).unwrap();
         assert!(
             update_session_info(&db, id, "Quarterly report", "draft intro and summary").unwrap()
         );

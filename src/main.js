@@ -35,8 +35,8 @@ const status = $("status");
 const feed = $("feed");
 const currentNotes = $("current-notes");
 const sessionTotals = $("session-totals");
-const sessionGoal = $("session-goal");
-const runningGoal = $("running-goal");
+const sessionGoal = $("session-goals");
+const runningGoal = $("running-goals");
 
 let minutes = 25;
 let session = null; // see `Session` in lib.rs
@@ -379,27 +379,64 @@ async function showCurrentNotes() {
   }
 }
 
-function optionEl(value, label, selected) {
-  const opt = el("option", null, label);
-  opt.value = value;
-  if (selected) opt.selected = true;
-  return opt;
+// A dropdown of checkboxes for linking a session to zero or more goals. `onChange(ids)` fires on
+// every tick; `load(ids)` fills it from the current goals and marks `ids` as selected.
+function goalMultiSelect(root, onChange = () => {}) {
+  const summary = root.querySelector(".goal-summary");
+  const options = root.querySelector(".goal-options");
+  let selected = new Set();
+  let titles = new Map();
+
+  const refreshSummary = () => {
+    const chosen = [...selected].map((id) => titles.get(id)).filter(Boolean);
+    summary.textContent = chosen.length ? chosen.join(", ") : "No goals";
+  };
+
+  async function load(selectedIds) {
+    selected = new Set(selectedIds ?? []);
+    let goals = [];
+    try {
+      goals = await invoke("get_goals");
+    } catch (e) {
+      /* leave it empty */
+    }
+    // Active goals, plus any already-linked goal even if it has since been marked done.
+    const choices = goals.filter((g) => !g.done || selected.has(g.id));
+    titles = new Map(choices.map((g) => [g.id, g.title]));
+    if (!choices.length) {
+      options.replaceChildren(el("p", "goal-empty", "No goals yet — add some in the Goals tab."));
+    } else {
+      options.replaceChildren(
+        ...choices.map((g) => {
+          const label = el("label", "goal-option");
+          const check = el("input");
+          check.type = "checkbox";
+          check.checked = selected.has(g.id);
+          check.addEventListener("change", () => {
+            if (check.checked) selected.add(g.id);
+            else selected.delete(g.id);
+            refreshSummary();
+            onChange([...selected]);
+          });
+          label.append(check, el("span", null, g.title));
+          return label;
+        }),
+      );
+    }
+    refreshSummary();
+  }
+
+  return { load, get selected() { return [...selected]; } };
 }
 
-// Fills a goal <select> with "No goal" plus active goals (and the chosen one even if done).
-async function fillGoalSelect(select, selectedId) {
-  let goals = [];
+const sessionGoals = goalMultiSelect(sessionGoal);
+const runningGoals = goalMultiSelect(runningGoal, async (ids) => {
   try {
-    goals = await invoke("get_goals");
+    session = await invoke("set_session_goals", { goalIds: ids });
   } catch (e) {
-    /* leave just "No goal" */
+    status.textContent = String(e);
   }
-  const choices = goals.filter((g) => !g.done || g.id === selectedId);
-  select.replaceChildren(
-    optionEl("", "No goal", selectedId == null),
-    ...choices.map((g) => optionEl(String(g.id), g.title, g.id === selectedId)),
-  );
-}
+});
 
 function render() {
   const active = session !== null;
@@ -412,8 +449,8 @@ function render() {
   currentTask.hidden = !active;
   currentTask.textContent = session?.task ?? "";
   $("session-goal-row").hidden = !active;
-  if (active) fillGoalSelect(runningGoal, session.goal_id ?? null);
-  else fillGoalSelect(sessionGoal, null);
+  if (active) runningGoals.load(session.goals.map((g) => g.id));
+  else sessionGoals.load([]);
   times.hidden = !active;
   sessionTotals.hidden = !active;
   minutesInput.value = minutes;
@@ -446,7 +483,7 @@ toggle.addEventListener("click", async () => {
         task: taskInput.value,
         objectives: objectivesInput.value,
         minutes: timed() ? minutes : null,
-        goalId: sessionGoal.value ? Number(sessionGoal.value) : null,
+        goalIds: sessionGoals.selected,
       });
       messages = [];
       renderFeed();
@@ -475,14 +512,6 @@ breakButton.addEventListener("click", async () => {
   loadToday();
 });
 
-runningGoal.addEventListener("change", async () => {
-  try {
-    session = await invoke("set_session_goal", { goalId: runningGoal.value ? Number(runningGoal.value) : null });
-  } catch (e) {
-    status.textContent = String(e);
-  }
-});
-
 listen("session-finished", () => {
   session = null;
   showCurrentNotes();
@@ -507,7 +536,7 @@ function showView(view) {
     $(tab.dataset.view).hidden = tab.dataset.view !== view;
   }
   if (view === "history-view") refreshHistory();
-  if (view === "session-view" && !session) fillGoalSelect(sessionGoal, null);
+  if (view === "session-view" && !session) sessionGoals.load([]);
   if (view === "goals-view") loadGoals();
   if (view === "activity-view") loadActivity();
   if (view === "blocked-view") loadBlocking();
@@ -624,7 +653,10 @@ function sessionItem(record, worked, now) {
   ask.addEventListener("click", () => askAbout(record));
   taskRow.append(el("p", "record-task", record.task), ask);
   main.append(head, taskRow);
-  if (record.goal_title) main.append(el("p", "record-goal", `Goal: ${record.goal_title}`));
+  if (record.goals.length) {
+    const label = record.goals.length === 1 ? "Goal" : "Goals";
+    main.append(el("p", "record-goal", `${label}: ${record.goals.map((g) => g.title).join(", ")}`));
+  }
   if (record.objectives) main.append(el("p", "record-objectives", record.objectives));
 
   // Work in gold, breaks in grey, and a dot for each thing the assistant said.

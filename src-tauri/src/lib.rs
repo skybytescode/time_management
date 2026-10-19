@@ -30,9 +30,8 @@ pub struct Session {
     /// The session's title.
     task: String,
     objectives: String,
-    /// The goal this session contributes to, if any.
-    goal_id: Option<i64>,
-    goal_title: Option<String>,
+    /// The goals this session contributes to.
+    goals: Vec<db::GoalRef>,
     start_ms: i64,
     /// Set for timed sessions.
     end_ms: Option<i64>,
@@ -226,7 +225,7 @@ fn start_session(
     task: String,
     objectives: String,
     minutes: Option<u32>,
-    goal_id: Option<i64>,
+    goal_ids: Vec<i64>,
     app: AppHandle,
     state: State<AppState>,
 ) -> Result<Session, String> {
@@ -241,18 +240,17 @@ fn start_session(
     }
 
     let start_ms = now_ms();
-    let (id, goal_title) = {
+    let (id, goals) = {
         let db = state.db.lock().unwrap();
-        let id = db::create_session(&db, &task, &objectives, minutes, goal_id, start_ms).map_err(err)?;
-        let title = goal_id.and_then(|g| db::goal_title(&db, g).ok().flatten());
-        (id, title)
+        let id = db::create_session(&db, &task, &objectives, minutes, &goal_ids, start_ms).map_err(err)?;
+        let goals = db::session_goal_refs(&db, id).map_err(err)?;
+        (id, goals)
     };
     let session = Session {
         id,
         task,
         objectives,
-        goal_id,
-        goal_title,
+        goals,
         start_ms,
         end_ms: minutes.map(|m| start_ms + i64::from(m) * MINUTE_MS),
         block_error: apply_block(&state).err(),
@@ -302,15 +300,14 @@ fn update_session_info(
     Ok(session.clone())
 }
 
-/// Links the running session to a goal, or clears the link with `None`.
+/// Sets exactly which goals the running session contributes to.
 #[tauri::command]
-fn set_session_goal(goal_id: Option<i64>, state: State<AppState>) -> Result<Session, String> {
+fn set_session_goals(goal_ids: Vec<i64>, state: State<AppState>) -> Result<Session, String> {
     let mut current = state.session.lock().unwrap();
     let session = current.as_mut().ok_or("no session is running")?;
     let db = state.db.lock().unwrap();
-    db::set_session_goal(&db, session.id, goal_id).map_err(err)?;
-    session.goal_id = goal_id;
-    session.goal_title = goal_id.and_then(|g| db::goal_title(&db, g).ok().flatten());
+    db::set_session_goals(&db, session.id, &goal_ids).map_err(err)?;
+    session.goals = db::session_goal_refs(&db, session.id).map_err(err)?;
     Ok(session.clone())
 }
 
@@ -766,7 +763,7 @@ pub fn run() {
             update_goal,
             set_goal_done,
             delete_goal,
-            set_session_goal,
+            set_session_goals,
             get_blocking,
             add_blocked_site,
             remove_blocked_site,

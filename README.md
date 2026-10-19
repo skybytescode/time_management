@@ -75,7 +75,8 @@ Set `TM_CHECK_IN_MINUTES=2` to try the check-ins without waiting an hour.
 ## Goals
 
 The **Goals** tab holds long-term goals that don't belong to any one session: a title, optional
-details and an optional target date, each marked active or done. A session can be linked to a goal (pick one when you start it, or change it while it runs), and
+details and an optional target date, each marked active or done. A session can be linked to one or
+several goals (pick them when you start it, or change them while it runs), and
 each goal shows how many sessions and how much time have gone toward it. The assistant keeps the big
 picture — active goals flow into the greeting, the session start message, the hourly check-ins and
 the Ask chat, alongside the current session's objectives.

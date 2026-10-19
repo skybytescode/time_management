@@ -103,8 +103,17 @@ body {
 .side {
   position: sticky;
   top: 68px;
+}
+
+.today {
   max-height: calc(100vh - 84px);
   overflow-y: auto;
+}
+
+/* The side column must not clip horizontally, so the Objectives box can be dragged wider than
+   the column (the page scrolls sideways if it reaches the window edge). */
+.side {
+  overflow: visible;
 }
 
 .column h3 {
@@ -1326,20 +1335,55 @@ textarea {
   margin-right: auto;
 }
 
-.goal-select {
+/* Goal picker: a disclosure whose summary lists the chosen goals, with a checkbox per goal. */
+.goal-multi {
   box-sizing: border-box;
-  max-width: 100%;
-  padding: 7px 10px;
+  width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font: inherit;
-  color: var(--fg);
   background-color: var(--surface);
-  color-scheme: light dark;
 }
 
-#session-goal {
-  width: 100%;
+.goal-summary {
+  padding: 7px 10px;
+  color: var(--fg);
+  cursor: pointer;
+  list-style-position: inside;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goal-multi[open] .goal-summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.goal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.goal-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.goal-option:hover {
+  background-color: var(--bg);
+}
+
+.goal-empty {
+  margin: 4px 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 .session-goal-row {
@@ -1349,8 +1393,9 @@ textarea {
   margin-top: 10px;
 }
 
-.session-goal-row .goal-select {
+.session-goal-row .goal-multi {
   flex: 1;
+  min-width: 0;
 }
 
 .goal-progress {
