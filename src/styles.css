@@ -71,11 +71,11 @@ body {
    the layout steps down 3 → 2 → 1 columns as the window narrows (areas reflow, no content clipped). */
 .session-view {
   display: grid;
-  grid-template-columns: clamp(210px, 20vw, 260px) minmax(320px, 1fr) clamp(260px, 22vw, 320px);
+  grid-template-columns: clamp(180px, 15vw, 220px) minmax(360px, 1fr) clamp(240px, 19vw, 300px);
   grid-template-areas: "today center side";
   align-items: start;
   gap: clamp(14px, 2vw, 24px);
-  max-width: 1400px;
+  max-width: 1200px;
 }
 
 .today {
@@ -294,7 +294,7 @@ input[type="date"] {
 }
 
 .dial {
-  width: min(240px, 70vw, 36vh);
+  width: min(340px, 62vw, 46vh);
   height: auto;
 }
 
