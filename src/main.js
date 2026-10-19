@@ -538,6 +538,7 @@ function showView(view) {
   if (view === "history-view") refreshHistory();
   if (view === "session-view" && !session) sessionGoals.load([]);
   if (view === "goals-view") loadGoals();
+  if (view === "notes-view") loadGlobalNotes();
   if (view === "activity-view") loadActivity();
   if (view === "blocked-view") loadBlocking();
   if (view === "ask-view") question.focus();
@@ -1033,6 +1034,104 @@ goalForm.addEventListener("submit", async (e) => {
   } catch (e) {
     goalError.textContent = String(e);
   }
+});
+
+// ---- Global notes ----
+
+const globalNoteInput = $("global-note-input");
+const globalNoteList = $("global-note-list");
+const globalNoteError = $("global-note-error");
+let globalNotes = [];
+
+async function loadGlobalNotes() {
+  try {
+    globalNotes = await invoke("get_global_notes");
+    globalNoteError.textContent = "";
+  } catch (e) {
+    globalNoteError.textContent = String(e);
+  }
+  renderGlobalNotes();
+}
+
+function renderGlobalNotes() {
+  globalNoteList.replaceChildren(...globalNotes.map(globalNoteItem));
+  if (!globalNotes.length) globalNoteList.append(el("li", "chat-hint", "No notes yet. Write one above."));
+}
+
+function globalNoteItem(note) {
+  const item = el("li", "note");
+  const head = el("div", "note-head");
+  const when = new Date(note.created_ms).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  head.append(el("span", null, note.updated_ms !== note.created_ms ? `${when} · edited` : when));
+  const actions = el("span", "note-actions");
+  const edit = el("button", "link", "Edit");
+  const remove = el("button", "link danger", "Delete");
+  actions.append(edit, remove);
+  head.append(actions);
+  item.append(head, el("p", "note-text", note.text));
+
+  edit.addEventListener("click", () => {
+    const textarea = el("textarea", "note-input");
+    textarea.rows = 3;
+    textarea.value = note.text;
+    const save = el("button", "small", "Save");
+    const cancel = el("button", "link", "Cancel");
+    const row = el("div", "note-buttons");
+    row.append(save, cancel);
+    item.replaceChildren(textarea, row);
+    textarea.focus();
+    const submit = async () => {
+      try {
+        Object.assign(note, await invoke("update_global_note", { id: note.id, text: textarea.value }));
+        globalNoteError.textContent = "";
+        renderGlobalNotes();
+      } catch (e) {
+        globalNoteError.textContent = String(e);
+      }
+    };
+    save.addEventListener("click", submit);
+    textarea.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.ctrlKey) submit();
+    });
+    cancel.addEventListener("click", renderGlobalNotes);
+  });
+
+  // A second click within a few seconds confirms.
+  remove.addEventListener("click", async () => {
+    if (!remove.classList.contains("confirm")) {
+      remove.classList.add("confirm");
+      remove.textContent = "Click again to delete";
+      setTimeout(() => {
+        remove.classList.remove("confirm");
+        remove.textContent = "Delete";
+      }, 3000);
+      return;
+    }
+    try {
+      await invoke("delete_global_note", { id: note.id });
+      globalNotes = globalNotes.filter((n) => n !== note);
+      renderGlobalNotes();
+    } catch (e) {
+      globalNoteError.textContent = String(e);
+    }
+  });
+  return item;
+}
+
+const addGlobalNote = async () => {
+  if (!globalNoteInput.value.trim()) return;
+  try {
+    globalNotes.unshift(await invoke("add_global_note", { text: globalNoteInput.value }));
+    globalNoteInput.value = "";
+    globalNoteError.textContent = "";
+    renderGlobalNotes();
+  } catch (e) {
+    globalNoteError.textContent = String(e);
+  }
+};
+$("global-note-add").addEventListener("click", addGlobalNote);
+globalNoteInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.ctrlKey) addGlobalNote();
 });
 
 // ---- Blocked sites ----

@@ -389,6 +389,26 @@ fn delete_note(id: i64, state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_global_notes(state: State<AppState>) -> Result<Vec<db::GlobalNote>, String> {
+    db::global_notes(&state.db.lock().unwrap()).map_err(err)
+}
+
+#[tauri::command]
+fn add_global_note(text: String, state: State<AppState>) -> Result<db::GlobalNote, String> {
+    db::add_global_note(&state.db.lock().unwrap(), note_text(&text)?, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+fn update_global_note(id: i64, text: String, state: State<AppState>) -> Result<db::GlobalNote, String> {
+    db::update_global_note(&state.db.lock().unwrap(), id, note_text(&text)?, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+fn delete_global_note(id: i64, state: State<AppState>) -> Result<(), String> {
+    db::delete_global_note(&state.db.lock().unwrap(), id).map_err(err)
+}
+
+#[tauri::command]
 fn get_goals(state: State<AppState>) -> Result<Vec<db::Goal>, String> {
     db::goals(&state.db.lock().unwrap()).map_err(err)
 }
@@ -757,6 +777,10 @@ pub fn run() {
             add_note,
             update_note,
             delete_note,
+            get_global_notes,
+            add_global_note,
+            update_global_note,
+            delete_global_note,
             activities,
             get_goals,
             add_goal,

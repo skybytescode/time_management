@@ -104,9 +104,13 @@ sessions (hover one for its title), work time and break time.
 Every note belongs to one session: write them in the **Session** tab while it runs, and add, edit
 or delete them on any session in **History**. The check-ins read the current session's notes.
 
+The **Notes** tab holds global notes that belong to no session — ideas, reminders, anything to keep
+around — with add, edit and delete. They aren't used by the greeting or check-ins, but the Ask chat
+gets them as context.
+
 The **Ask** tab is a chat with Claude about your history: by default it gets all sessions (newest
-first, with their notes and what the assistant said), and **Ask Claude** on a session in History
-narrows it to that one.
+first, with their notes and what the assistant said) plus your global notes, and **Ask Claude** on a
+session in History narrows it to that one.
 
 ## Start at login
 

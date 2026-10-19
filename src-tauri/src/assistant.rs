@@ -196,6 +196,21 @@ fn global_goals(app: &AppHandle) -> String {
     }
 }
 
+/// Sergiu's global notes, given only to the Ask chat as extra context.
+fn global_notes(app: &AppHandle) -> String {
+    let state = app.state::<AppState>();
+    let lines = db::global_note_lines(&state.db.lock().unwrap()).unwrap_or_default();
+    if lines.is_empty() {
+        "none".into()
+    } else {
+        lines
+            .iter()
+            .map(|line| format!("- {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 /// Saves the message, shows it in the window and says it.
 fn deliver(
     app: &AppHandle,
@@ -644,9 +659,10 @@ pub fn ask_about_notes(
         transcript.push_str(&format!("{who}: {}\n\n", turn.text));
     }
     let prompt = format!(
-        "It is {}. Sergiu's long-term goals:\n{}\n\nHere is {scope}:\n\n{}\n---\nConversation so far (answer Sergiu's last message):\n\n{transcript}",
+        "It is {}. Sergiu's long-term goals:\n{}\n\nHis global notes:\n{}\n\nHere is {scope}:\n\n{}\n---\nConversation so far (answer Sergiu's last message):\n\n{transcript}",
         time_context(),
         global_goals(app),
+        global_notes(app),
         if history.is_empty() {
             "No sessions recorded yet.\n".into()
         } else {

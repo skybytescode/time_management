@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS session_goals (
     PRIMARY KEY (session_id, goal_id)
 );
 CREATE INDEX IF NOT EXISTS session_goals_goal ON session_goals(goal_id);
+-- Free-form notes that don't belong to any session.
+CREATE TABLE IF NOT EXISTS global_notes (
+    id INTEGER PRIMARY KEY,
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL,
+    text TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS sessions_start ON sessions(start_ms);
 CREATE INDEX IF NOT EXISTS breaks_session ON breaks(session_id);
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id);
@@ -109,6 +116,14 @@ pub struct Message {
 pub struct Note {
     pub id: i64,
     pub session_id: i64,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+    pub text: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct GlobalNote {
+    pub id: i64,
     pub created_ms: i64,
     pub updated_ms: i64,
     pub text: String,
@@ -397,6 +412,62 @@ pub fn update_note(db: &Db, id: i64, text: &str, now_ms: i64) -> rusqlite::Resul
 pub fn delete_note(db: &Db, id: i64) -> rusqlite::Result<()> {
     db.execute("DELETE FROM notes WHERE id = ?1", [id])?;
     Ok(())
+}
+
+const GLOBAL_NOTE_COLUMNS: &str = "id, created_ms, updated_ms, text";
+
+fn global_note_row(row: &rusqlite::Row) -> rusqlite::Result<GlobalNote> {
+    Ok(GlobalNote {
+        id: row.get(0)?,
+        created_ms: row.get(1)?,
+        updated_ms: row.get(2)?,
+        text: row.get(3)?,
+    })
+}
+
+/// Free-form notes that belong to no session, newest first.
+pub fn global_notes(db: &Db) -> rusqlite::Result<Vec<GlobalNote>> {
+    db.prepare(&format!(
+        "SELECT {GLOBAL_NOTE_COLUMNS} FROM global_notes ORDER BY created_ms DESC"
+    ))?
+    .query_map([], global_note_row)?
+    .collect()
+}
+
+pub fn add_global_note(db: &Db, text: &str, now_ms: i64) -> rusqlite::Result<GlobalNote> {
+    db.execute(
+        "INSERT INTO global_notes (created_ms, updated_ms, text) VALUES (?1, ?1, ?2)",
+        params![now_ms, text],
+    )?;
+    db.query_row(
+        &format!("SELECT {GLOBAL_NOTE_COLUMNS} FROM global_notes WHERE id = ?1"),
+        [db.last_insert_rowid()],
+        global_note_row,
+    )
+}
+
+pub fn update_global_note(db: &Db, id: i64, text: &str, now_ms: i64) -> rusqlite::Result<GlobalNote> {
+    db.execute(
+        "UPDATE global_notes SET text = ?2, updated_ms = ?3 WHERE id = ?1",
+        params![id, text, now_ms],
+    )?;
+    db.query_row(
+        &format!("SELECT {GLOBAL_NOTE_COLUMNS} FROM global_notes WHERE id = ?1"),
+        [id],
+        global_note_row,
+    )
+}
+
+pub fn delete_global_note(db: &Db, id: i64) -> rusqlite::Result<()> {
+    db.execute("DELETE FROM global_notes WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// The global notes' texts, for the Ask chat's context.
+pub fn global_note_lines(db: &Db) -> rusqlite::Result<Vec<String>> {
+    db.prepare("SELECT text FROM global_notes ORDER BY created_ms DESC")?
+        .query_map([], |row| row.get(0))?
+        .collect()
 }
 
 fn session_breaks(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Interval>> {
