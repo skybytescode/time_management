@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::Timelike;
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -25,6 +26,9 @@ const SHOTS_PER_CHECK_IN: i64 = 3;
 const BREAK_MS: i64 = 5 * MINUTE_MS;
 /// Without a session, the assistant nudges you to start one this often.
 const IDLE_NUDGE_EVERY_MS: i64 = 20 * MINUTE_MS;
+/// No nudges from 21:00 until 04:00.
+const QUIET_FROM_HOUR: u32 = 21;
+const QUIET_UNTIL_HOUR: u32 = 4;
 
 #[derive(Clone, Serialize)]
 pub struct Session {
@@ -201,7 +205,7 @@ fn watch_session(app: AppHandle, id: i64) {
 }
 
 /// Nudges to start a session after every 20 minutes without one, counted from the app start or
-/// the end of the last session.
+/// the end of the last session. Quiet at night.
 fn watch_idle(app: AppHandle) {
     let mut idle_since = None;
     let mut next_nudge = 0;
@@ -221,8 +225,11 @@ fn watch_idle(app: AppHandle) {
             while next_nudge <= now {
                 next_nudge += IDLE_NUDGE_EVERY_MS;
             }
-            let app = app.clone();
-            thread::spawn(move || assistant::idle_nudge(&app, (now - since) / MINUTE_MS));
+            let hour = chrono::Local::now().hour();
+            if (QUIET_UNTIL_HOUR..QUIET_FROM_HOUR).contains(&hour) {
+                let app = app.clone();
+                thread::spawn(move || assistant::idle_nudge(&app, (now - since) / MINUTE_MS));
+            }
         }
     }
 }
