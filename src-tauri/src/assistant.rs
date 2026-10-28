@@ -185,7 +185,8 @@ fn recent_sessions(app: &AppHandle, since_ms: i64) -> String {
     }
 }
 
-/// Sergiu's active long-term goals, shared with every assistant message so it keeps the big picture.
+/// Sergiu's active long-term goals, given only to the Ask chat; spoken messages stick to the
+/// current session.
 fn global_goals(app: &AppHandle) -> String {
     let state = app.state::<AppState>();
     let lines = db::active_goal_lines(&state.db.lock().unwrap()).unwrap_or_default();
@@ -258,12 +259,10 @@ pub fn greet(app: &AppHandle) {
 
     let prompt = format!(
         "Sergiu just turned on the computer and the app opened. It is {}.\n\
-         His long-term goals:\n{}\n\
          Work sessions in the last three days:\n{}\n\n\
          Greet Sergiu by name with a greeting that fits the time of day, then add something \
-         motivating for what's ahead. You may refer to recent work or a goal. Two or three sentences.",
+         motivating for what's ahead. You may refer to recent work. Two or three sentences.",
         time_context(),
-        global_goals(app),
         recent_sessions(app, now_ms() - 3 * 24 * 3_600_000),
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
@@ -315,27 +314,39 @@ fn objectives_line(objectives: &str) -> String {
     }
 }
 
+/// The notes written in a session, one "- …" line each, or "none".
+fn session_notes(app: &AppHandle, session_id: i64) -> String {
+    let state = app.state::<AppState>();
+    let notes = db::session_notes(&state.db.lock().unwrap(), session_id).unwrap_or_default();
+    if notes.is_empty() {
+        "none".into()
+    } else {
+        notes
+            .iter()
+            .map(|n| format!("- {}", n.text))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+fn start_of_today_ms() -> i64 {
+    Local::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .and_then(|t| t.and_local_timezone(Local).single())
+        .map_or(now_ms() - 12 * 3_600_000, |t| t.timestamp_millis())
+}
+
 /// Announces a new session with a good-luck message about its task.
 pub fn session_started(app: &AppHandle, session: &Session) {
     let prompt = format!(
-        "Sergiu just started a work session. It is {}. It's {}.\nTask: \"{}\"\n{}\
-         His long-term goals:\n{}\n\
-         Sessions earlier today:\n{}\n\n\
+        "Sergiu just started a work session. It is {}. It's {}.\nTask: \"{}\"\n{}\n\
          Say the session has started and wish good luck in a way that fits this specific task \
-         and its objectives; you may tie it to a goal if it fits. One or two short sentences.",
+         and its objectives. One or two short sentences.",
         time_context(),
         session_kind(session),
         session.task,
         objectives_line(&session.objectives),
-        global_goals(app),
-        recent_sessions(
-            app,
-            Local::now()
-                .date_naive()
-                .and_hms_opt(0, 0, 0)
-                .and_then(|t| t.and_local_timezone(Local).single())
-                .map_or(now_ms() - 12 * 3_600_000, |t| t.timestamp_millis())
-        ),
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
         eprintln!("session start: {e}");
@@ -354,7 +365,7 @@ pub fn session_started(app: &AppHandle, session: &Session) {
 /// Says something when the session ends, by the user (`finished == false`) or the timer.
 pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: bool) {
     let worked = (end_ms - session.start_ms - session.break_ms_until(end_ms)) / 60_000;
-    let notes = {
+    let seen = {
         let state = app.state::<AppState>();
         let messages =
             db::session_messages(&state.db.lock().unwrap(), session.id).unwrap_or_default();
@@ -366,7 +377,8 @@ pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: 
     };
     let prompt = format!(
         "Sergiu just {} a work session on \"{}\": {worked} minutes of work and {} breaks. It is {}.\n\
-         {}What you saw on screen during the session:\n{}\n\n\
+         {}Sergiu's notes in this session:\n{}\n\
+         What you saw on screen during the session:\n{}\n\n\
          Give a short closing remark: acknowledge the work specifically and suggest some rest. \
          One or two sentences.",
         if finished {
@@ -378,10 +390,11 @@ pub fn session_ended(app: &AppHandle, session: &Session, end_ms: i64, finished: 
         session.breaks,
         time_context(),
         objectives_line(&session.objectives),
-        if notes.is_empty() {
+        session_notes(app, session.id),
+        if seen.is_empty() {
             "nothing recorded"
         } else {
-            &notes
+            &seen
         },
     );
     let text = ask_message(app, prompt).unwrap_or_else(|e| {
@@ -430,6 +443,30 @@ pub fn break_reminder(app: &AppHandle, session: &Session, minutes: u32, first: b
     deliver(app, Some(session.id), "break-over", text, None);
 }
 
+/// Spoken every 20 minutes without a session, to get Sergiu to start the next one.
+/// `idle_minutes` is how long it's been since the last session ended or the app started.
+pub fn idle_nudge(app: &AppHandle, idle_minutes: i64) {
+    let prompt = format!(
+        "No work session is running. It is {}. Sergiu has gone {idle_minutes} minutes without one.\n\
+         Sessions earlier today:\n{}\n\n\
+         Encourage Sergiu to start a new focused session of work or self-improvement now, warmly \
+         and without nagging; you may build on what he did earlier today. One or two short sentences.",
+        time_context(),
+        recent_sessions(app, start_of_today_ms()),
+    );
+    let text = ask_message(app, prompt).unwrap_or_else(|e| {
+        eprintln!("idle nudge: {e}");
+        pick(&[
+            "Ready for another session, Sergiu? Pick one thing and start the timer.",
+            "It's a good moment to begin a new session. Even twenty focused minutes count.",
+            "Shall we get going again? Choose your next task and start a session.",
+            "A small step now beats a perfect plan later. Start a session, Sergiu.",
+        ])
+        .to_string()
+    });
+    deliver(app, None, "nudge", text, None);
+}
+
 /// Screenshot of the active window, scaled down and JPEG-encoded in base64. Nothing stays on disk.
 pub fn capture_screen(app: &AppHandle) -> Result<String, String> {
     let file = app
@@ -474,35 +511,26 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
     let now = now_ms();
     let elapsed = (now - session.start_ms) / 60_000;
     let since_break = (now - session.last_break_end_ms.unwrap_or(session.start_ms)) / 60_000;
-    let (earlier, notes) = {
+    let earlier = {
         let state = app.state::<AppState>();
-        let db = state.db.lock().unwrap();
-        let messages = db::session_messages(&db, session.id).unwrap_or_default();
-        let notes = db::session_notes(&db, session.id).unwrap_or_default();
-        (
-            messages
-                .iter()
-                .map(|m| format!("[{}] {}", m.kind, m.text))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            notes
-                .iter()
-                .map(|n| format!("- {}", n.text))
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
+        let messages =
+            db::session_messages(&state.db.lock().unwrap(), session.id).unwrap_or_default();
+        messages
+            .iter()
+            .map(|m| format!("[{}] {}", m.kind, m.text))
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let prompt = format!(
         "Check-in. It is {}. Sergiu's task: \"{}\".\n\
-         {}His long-term goals:\n{}\n\
-         The session has run {elapsed} minutes, {since_break} minutes since the last break \
+         {}The session has run {elapsed} minutes, {since_break} minutes since the last break \
          ({} breaks so far). The images are the active window over the last few minutes.\n\
          What you said earlier this session:\n{}\n\
          Sergiu's notes in this session:\n{}\n\n\
          First work out what Sergiu is actually doing. Then say one genuinely useful thing: a \
          concrete technical tip about what's on screen, something that might be overlooked (a bug, \
          a risky step, a better approach), or real motivation if it's going well. If the work has \
-         drifted from the task, its objectives or his goals, point that out kindly. Don't repeat \
+         drifted from the task or its objectives, point that out kindly. Don't repeat \
          earlier advice.\n\
          Breaks: if it's been 60 or more minutes since the last break, also recommend a 5 minute \
          break. At 120 or more, make the break the main message and be firm about it.\n\
@@ -510,14 +538,13 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
         time_context(),
         session.task,
         objectives_line(&session.objectives),
-        global_goals(app),
         session.breaks,
         if earlier.is_empty() {
             "nothing yet"
         } else {
             &earlier
         },
-        if notes.is_empty() { "none" } else { &notes },
+        session_notes(app, session.id),
     );
     let mut content: Vec<Value> = shots
         .into_iter()

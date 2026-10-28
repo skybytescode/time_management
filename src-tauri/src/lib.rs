@@ -23,6 +23,8 @@ const CAPTURE_WINDOW_MS: i64 = 5 * MINUTE_MS;
 const SHOTS_PER_CHECK_IN: i64 = 3;
 /// Length of the recommended break, after which the assistant calls you back.
 const BREAK_MS: i64 = 5 * MINUTE_MS;
+/// Without a session, the assistant nudges you to start one this often.
+const IDLE_NUDGE_EVERY_MS: i64 = 20 * MINUTE_MS;
 
 #[derive(Clone, Serialize)]
 pub struct Session {
@@ -198,6 +200,33 @@ fn watch_session(app: AppHandle, id: i64) {
     }
 }
 
+/// Nudges to start a session after every 20 minutes without one, counted from the app start or
+/// the end of the last session.
+fn watch_idle(app: AppHandle) {
+    let mut idle_since = None;
+    let mut next_nudge = 0;
+    loop {
+        thread::sleep(Duration::from_secs(1));
+        let now = now_ms();
+        if current_session(&app).is_some() {
+            idle_since = None;
+            continue;
+        }
+        let since = *idle_since.get_or_insert_with(|| {
+            next_nudge = now + IDLE_NUDGE_EVERY_MS;
+            now
+        });
+        if now >= next_nudge {
+            // Skip nudges missed while the computer was suspended.
+            while next_nudge <= now {
+                next_nudge += IDLE_NUDGE_EVERY_MS;
+            }
+            let app = app.clone();
+            thread::spawn(move || assistant::idle_nudge(&app, (now - since) / MINUTE_MS));
+        }
+    }
+}
+
 fn err(e: rusqlite::Error) -> String {
     format!("database error: {e}")
 }
@@ -207,14 +236,14 @@ fn get_session(state: State<AppState>) -> Option<Session> {
     state.session.lock().unwrap().clone()
 }
 
-/// Messages of the current session, or the latest greeting when none is running.
+/// Messages of the current session, or the latest greeting or nudge when none is running.
 #[tauri::command]
 fn get_messages(state: State<AppState>) -> Result<Vec<db::Message>, String> {
     let session_id = state.session.lock().unwrap().as_ref().map(|s| s.id);
     let db = state.db.lock().unwrap();
     match session_id {
         Some(id) => db::session_messages(&db, id).map_err(err),
-        None => db::latest_greeting(&db, now_ms() - 4 * 3_600_000)
+        None => db::latest_idle_message(&db, now_ms() - 4 * 3_600_000)
             .map(|greeting| greeting.into_iter().collect())
             .map_err(err),
     }
@@ -751,6 +780,8 @@ pub fn run() {
             activity::start(app.handle().clone());
             let handle = app.handle().clone();
             thread::spawn(move || assistant::greet(&handle));
+            let handle = app.handle().clone();
+            thread::spawn(move || watch_idle(handle));
 
             setup_tray(app.handle())?;
             // Closing the window hides it to the tray instead of quitting; use the tray to quit.

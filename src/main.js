@@ -16,6 +16,7 @@ const KIND_LABELS = {
   break: "Break advice",
   "break-over": "Break over",
   finished: "Done",
+  nudge: "Nudge",
 };
 
 const $ = (id) => document.getElementById(id);

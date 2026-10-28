@@ -355,10 +355,10 @@ pub fn session_messages(db: &Db, session_id: i64) -> rusqlite::Result<Vec<Messag
         .collect()
 }
 
-pub fn latest_greeting(db: &Db, since_ms: i64) -> rusqlite::Result<Option<Message>> {
+pub fn latest_idle_message(db: &Db, since_ms: i64) -> rusqlite::Result<Option<Message>> {
     db.query_row(
         "SELECT session_id, at_ms, kind, text, observation FROM messages
-         WHERE kind = 'greeting' AND at_ms >= ?1 ORDER BY at_ms DESC LIMIT 1",
+         WHERE kind IN ('greeting', 'nudge') AND at_ms >= ?1 ORDER BY at_ms DESC LIMIT 1",
         [since_ms],
         message_row,
     )
