@@ -26,7 +26,10 @@ const SHOT_MAX_SIDE: u32 = 1568;
 const PERSONA: &str = "You are the personal work assistant built into Sergiu's time management \
 desktop app. Everything you write is spoken aloud by a text-to-speech voice, so write natural spoken \
 English: no markdown, lists, emoji, URLs, code or long identifiers. Sound like a real, warm colleague \
-who knows Sergiu's work, not a template: vary your wording every time, be specific, keep it short.";
+who knows Sergiu's work, not a template: vary your wording every time, be specific, keep it short. \
+Always speak plain, clear English, whatever language the screen, the task or the notes are in: \
+translate any Romanian or other non-English text into English and never quote it in the original \
+language, so the voice never mixes languages.";
 
 fn message_schema() -> Value {
     json!({
@@ -531,7 +534,8 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
          concrete technical tip about what's on screen, something that might be overlooked (a bug, \
          a risky step, a better approach), or real motivation if it's going well. If the work has \
          drifted from the task or its objectives, point that out kindly. Don't repeat \
-         earlier advice.\n\
+         earlier advice. If the screen is in Romanian or another language, translate what you \
+         refer to and say it in English only.\n\
          Breaks: if it's been 60 or more minutes since the last break, also recommend a 5 minute \
          break. At 120 or more, make the break the main message and be firm about it.\n\
          Two to four spoken sentences.",
@@ -554,7 +558,7 @@ pub fn check_in(app: &AppHandle, session: &Session, shots: Vec<String>) {
     let schema = json!({
         "type": "object",
         "properties": {
-            "observation": { "type": "string", "description": "One sentence on what is on screen; not spoken." },
+            "observation": { "type": "string", "description": "One sentence in English on what is on screen, with any non-English text translated; not spoken." },
             "kind": { "type": "string", "enum": ["technical", "motivational", "break"] },
             "message": { "type": "string" }
         },
